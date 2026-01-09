@@ -83,3 +83,7 @@ For questions about this Privacy Policy or your data, contact:
 
 **ItemTraxx Co**  
 Email: to be posted soon  
+
+---
+
+**© 2026 ItemTraxx Co. All rights reserved.**
