@@ -56,4 +56,4 @@ ItemTraxx Co is not responsible for vulnerabilities introduced by third-party so
 For security issues or concerns, contact:
 
 **ItemTraxx Co**  
-Email: [your security contact email]  
+Email: to be added soon
