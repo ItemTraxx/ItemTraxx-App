@@ -60,3 +60,7 @@ For security issues or concerns, contact:
 
 **ItemTraxx Co**  
 Email: to be added soon
+
+---
+
+**© 2026 ItemTraxx Co. All rights reserved.**
