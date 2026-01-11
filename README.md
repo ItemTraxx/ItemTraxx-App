@@ -41,10 +41,11 @@ ItemTraxx is built using modern web technologies:
 All official documentation is shown here:
 
 - [License](LICENSE.md) – Legal ownership and usage rights.  
-- [Terms of Service](TERMS.md) – Rules for using ItemTraxx.  
+- [Terms of Service](TERMS.md) – Rules for using ItemTraxx.
+- [Legal](LEGAL.md) - Legal overview and governing documents
 - [Privacy Policy](PRIVACY.md) – How we collect, store, and protect data.  
 - [Security Guidelines](SECURITY.md) – Reporting vulnerabilities and secure use.  
-- [Changelog](CHANGELOG.md) – Track updates and new features.  
+- [Changelog](CHANGELOG.md) – Track updates and new features.
 
 ---
 
