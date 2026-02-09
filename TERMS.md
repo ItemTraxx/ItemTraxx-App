@@ -1,6 +1,6 @@
 # Terms of Service
 
-Last updated: 2026-01-09
+Last updated: 2026-02-09
 
 ## 1. Agreement to Terms
 By accessing or using ItemTraxx, you agree to be bound by these Terms of Service.  
