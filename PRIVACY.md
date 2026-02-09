@@ -82,7 +82,7 @@ We encourage you to review it periodically. Continued use of ItemTraxx means you
 For questions about this Privacy Policy or your data, contact:
 
 **ItemTraxx Co**  
-Email: to be posted soon  
+Email: support@itemtraxx.com 
 
 ---
 
