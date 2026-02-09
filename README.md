@@ -28,7 +28,7 @@ ItemTraxx is built with scalability and security in mind.
 
 ---
 
-## 3. Technology Stack
+## 3. Tech Stack
 ItemTraxx is built using modern web technologies:  
 - Frontend: React, TailwindCSS, Vue 3, JavaScript  
 - Backend: Node.js, Supabase  
