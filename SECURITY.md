@@ -9,7 +9,7 @@ ItemTraxx Co ("we", "our", or "us") is committed to maintaining the security and
 ## 1. Reporting a Vulnerability
 If you discover a security vulnerability in ItemTraxx, please report it responsibly:
 
-- Send an email to: to be added soon
+- Send an email to: support@itemtraxx.com
 - Include the following information:
   - A description of the issue
   - Device you are using, browser, etc.
@@ -59,7 +59,7 @@ ItemTraxx Co is not responsible for vulnerabilities introduced by third-party so
 For security issues or concerns, contact:
 
 **ItemTraxx Co**  
-Email: to be added soon
+Email: support@itemtraxx.com
 
 ---
 
