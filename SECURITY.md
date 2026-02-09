@@ -17,7 +17,7 @@ If you discover a security vulnerability in ItemTraxx, please report it responsi
   - Any relevant screenshots or logs
 - Please do **not** publicly disclose the issue before we have resolved it
 
-We will acknowledge your report within 2 business days and provide updates as the issue is investigated.
+We will acknowledge your report within 72 hours and provide updates as the issue is investigated.
 
 ---
 
