@@ -53,6 +53,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { signOut } from "./services/authService";
+import { getEdgeFunctionsBaseUrl } from "./services/edgeFunctionClient";
 import { getAuthState } from "./store/authState";
 
 const auth = getAuthState();
@@ -104,8 +105,8 @@ const logoutTenant = async () => {
 };
 
 const refreshSystemStatus = async () => {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  if (!supabaseUrl) {
+  const functionsBaseUrl = getEdgeFunctionsBaseUrl();
+  if (!functionsBaseUrl) {
     statusLabel.value = "Unknown";
     statusClass.value = "status-unknown";
     return;
@@ -115,7 +116,7 @@ const refreshSystemStatus = async () => {
   const timeoutId = window.setTimeout(() => controller.abort(), 3500);
   try {
     const response = await fetch(
-      `${supabaseUrl}/functions/v1/${statusFunctionName}`,
+      `${functionsBaseUrl}/${statusFunctionName}`,
       {
         method: "GET",
         signal: controller.signal,

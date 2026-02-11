@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { invokeEdgeFunction } from "./edgeFunctionClient";
 
 export type StudentItem = {
   id: string;
@@ -21,24 +22,6 @@ const pickRelation = <T>(value: MaybeRelation<T>): T | null => {
     return value[0] ?? null;
   }
   return value ?? null;
-};
-
-const getFunctionErrorMessage = async (
-  error: unknown,
-  fallback: string
-) => {
-  const context = (error as { context?: Response })?.context;
-  if (!context) {
-    return fallback;
-  }
-  try {
-    const payload = (await context.json()) as
-      | { error?: string; message?: string }
-      | null;
-    return payload?.error || payload?.message || fallback;
-  } catch {
-    return fallback;
-  }
 };
 
 export const fetchStudents = async () => {
@@ -66,10 +49,11 @@ export const createStudent = async (payload: {
     throw new Error("Unauthorized.");
   }
 
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  const { data, error } = await supabase.functions.invoke(
+  const result = await invokeEdgeFunction<{ data: StudentItem }>(
     "admin-student-mutate",
     {
+      method: "POST",
+      accessToken: session.access_token,
       body: {
         action: "create",
         payload: {
@@ -79,20 +63,14 @@ export const createStudent = async (payload: {
           student_id: payload.student_id,
         },
       },
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        apikey: anonKey ?? "",
-      },
     }
   );
 
-  if (error) {
-    throw new Error(
-      await getFunctionErrorMessage(error, "Unable to create student.")
-    );
+  if (!result.ok) {
+    throw new Error(result.error || "Unable to create student.");
   }
 
-  return (data as { data: StudentItem }).data;
+  return result.data?.data as StudentItem;
 };
 
 export const deleteStudent = async (id: string) => {
@@ -102,20 +80,17 @@ export const deleteStudent = async (id: string) => {
     throw new Error("Unauthorized.");
   }
 
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  const { error } = await supabase.functions.invoke("admin-student-mutate", {
+  const result = await invokeEdgeFunction("admin-student-mutate", {
+    method: "POST",
+    accessToken: session.access_token,
     body: {
       action: "delete",
       payload: { id },
     },
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      apikey: anonKey ?? "",
-    },
   });
 
-  if (error) {
-    throw new Error(await getFunctionErrorMessage(error, "Unable to remove student."));
+  if (!result.ok) {
+    throw new Error(result.error || "Unable to remove student.");
   }
 };
 

@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { invokeEdgeFunction } from "./edgeFunctionClient";
 
 type CheckoutReturnPayload = {
   student_id: string;
@@ -16,43 +17,20 @@ export const submitCheckoutReturn = async (
     throw new Error("Unauthorized.");
   }
 
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const result = await invokeEdgeFunction("checkoutReturn", {
+    method: "POST",
+    body: payload,
+    accessToken: session.access_token,
+  });
 
-  if (!anonKey || !supabaseUrl) {
-    throw new Error("Missing configuration.");
-  }
-
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/checkoutReturn`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-        apikey: anonKey,
-      },
-      body: JSON.stringify(payload),
-    }
-  );
-
-  if (!response.ok) {
-    if (response.status === 429) {
+  if (!result.ok) {
+    if (result.status === 429) {
       throw new Error("Rate limit exceeded, please try again in a minute.");
     }
-    let message = "Request failed.";
-    try {
-      const data = await response.json();
-      if (data?.error) {
-        message = data.error;
-      }
-    } catch {
-      // ignore parse errors
-    }
-    throw new Error(message);
+    throw new Error(result.error || "Request failed.");
   }
 
-  return response.json();
+  return result.data;
 };
 
 export type StudentSummary = {
