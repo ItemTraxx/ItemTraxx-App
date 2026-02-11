@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { invokeEdgeFunction } from "./edgeFunctionClient";
 
 export type GearItem = {
   id: string;
@@ -31,24 +32,6 @@ const pickRelation = <T>(value: MaybeRelation<T>): T | null => {
   return value ?? null;
 };
 
-const getFunctionErrorMessage = async (
-  error: unknown,
-  fallback: string
-) => {
-  const context = (error as { context?: Response })?.context;
-  if (!context) {
-    return fallback;
-  }
-  try {
-    const payload = (await context.json()) as
-      | { error?: string; message?: string }
-      | null;
-    return payload?.error || payload?.message || fallback;
-  } catch {
-    return fallback;
-  }
-};
-
 export const fetchGear = async () => {
   const { data, error } = await supabase
     .from("gear")
@@ -76,8 +59,9 @@ export const createGear = async (payload: {
     throw new Error("Unauthorized.");
   }
 
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  const { data, error } = await supabase.functions.invoke("admin-gear-mutate", {
+  const result = await invokeEdgeFunction<{ data: GearItem }>("admin-gear-mutate", {
+    method: "POST",
+    accessToken: session.access_token,
     body: {
       action: "create",
       payload: {
@@ -89,17 +73,13 @@ export const createGear = async (payload: {
         notes: payload.notes ?? null,
       },
     },
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      apikey: anonKey ?? "",
-    },
   });
 
-  if (error) {
-    throw new Error(await getFunctionErrorMessage(error, "Unable to create gear."));
+  if (!result.ok) {
+    throw new Error(result.error || "Unable to create gear.");
   }
 
-  return (data as { data: GearItem }).data;
+  return result.data?.data as GearItem;
 };
 
 export const updateGear = async (payload: {
@@ -115,8 +95,9 @@ export const updateGear = async (payload: {
     throw new Error("Unauthorized.");
   }
 
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  const { data, error } = await supabase.functions.invoke("admin-gear-mutate", {
+  const result = await invokeEdgeFunction<{ data: GearItem }>("admin-gear-mutate", {
+    method: "POST",
+    accessToken: session.access_token,
     body: {
       action: "update",
       payload: {
@@ -127,17 +108,13 @@ export const updateGear = async (payload: {
         notes: payload.notes ?? null,
       },
     },
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      apikey: anonKey ?? "",
-    },
   });
 
-  if (error) {
-    throw new Error(await getFunctionErrorMessage(error, "Unable to update gear."));
+  if (!result.ok) {
+    throw new Error(result.error || "Unable to update gear.");
   }
 
-  return (data as { data: GearItem }).data;
+  return result.data?.data as GearItem;
 };
 
 export const deleteGear = async (id: string) => {
@@ -147,20 +124,17 @@ export const deleteGear = async (id: string) => {
     throw new Error("Unauthorized.");
   }
 
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  const { error } = await supabase.functions.invoke("admin-gear-mutate", {
+  const result = await invokeEdgeFunction("admin-gear-mutate", {
+    method: "POST",
+    accessToken: session.access_token,
     body: {
       action: "delete",
       payload: { id },
     },
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      apikey: anonKey ?? "",
-    },
   });
 
-  if (error) {
-    throw new Error(await getFunctionErrorMessage(error, "Unable to remove gear."));
+  if (!result.ok) {
+    throw new Error(result.error || "Unable to remove gear.");
   }
 };
 

@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { invokeEdgeFunction } from "./edgeFunctionClient";
 import {
   clearAuthState,
   getAuthState,
@@ -82,42 +83,34 @@ export const initAuthListener = () => {
   });
 };
 
-export const tenantLogin = async (accessCode: string, password: string) => {
+export const tenantLogin = async (
+  accessCode: string,
+  password: string,
+  turnstileToken?: string
+) => {
   const functionName = getTenantLoginFunctionName();
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  const isPublishableKey = anonKey?.startsWith("sb_publishable_") ?? false;
-  const { data, error } = await supabase.functions.invoke(functionName, {
-    body: { access_code: accessCode },
-    headers: anonKey
-      ? {
-          apikey: anonKey,
-          ...(isPublishableKey ? {} : { Authorization: `Bearer ${anonKey}` }),
-        }
-      : undefined,
+  const result = await invokeEdgeFunction<{ auth_email?: string }, {
+    access_code: string;
+    turnstile_token?: string;
+  }>(functionName, {
+    method: "POST",
+    body: {
+      access_code: accessCode,
+      ...(turnstileToken ? { turnstile_token: turnstileToken } : {}),
+    },
   });
 
-  if (error) {
-    const context = (error as { context?: Response }).context;
-    if (context) {
-      const status = context.status;
-      let apiError = "";
-      try {
-        const parsed = (await context.json()) as
-          | { error?: string; message?: string }
-          | null;
-        apiError = parsed?.error ?? parsed?.message ?? "";
-      } catch {
-        apiError = "";
-      }
-
-      if (status === 503 && apiError === "Rate limit check failed") {
-        throw new Error("LIMITER_UNAVAILABLE");
-      }
+  if (!result.ok) {
+    if (result.status === 503 && result.error === "Rate limit check failed") {
+      throw new Error("LIMITER_UNAVAILABLE");
     }
-
+    if (result.status === 403 && result.error === "Turnstile verification failed") {
+      throw new Error("TURNSTILE_FAILED");
+    }
     throw new Error("Invalid tenant access code.");
   }
 
+  const data = result.data;
   if (!data?.auth_email) {
     throw new Error("Invalid tenant access code.");
   }

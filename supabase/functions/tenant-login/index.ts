@@ -13,6 +13,11 @@ type RateLimitResult = {
   retry_after_seconds: number | null;
 };
 
+type TurnstileVerifyResult = {
+  success: boolean;
+  "error-codes"?: string[];
+};
+
 const toHex = (bytes: Uint8Array) =>
   Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -56,11 +61,13 @@ const resolveClientFingerprint = (req: Request, origin: string | null) => {
 
 const enforceRateLimit = async (
   client: ReturnType<typeof createClient>,
+  key: string,
   scope: string,
   limit: number,
   windowSeconds: number
 ) => {
-  const { data, error } = await client.rpc("consume_rate_limit", {
+  const { data, error } = await client.rpc("consume_rate_limit_prelogin", {
+    p_key: key,
     p_scope: scope,
     p_limit: limit,
     p_window_seconds: windowSeconds,
@@ -76,6 +83,48 @@ const enforceRateLimit = async (
   }
 
   return { ok: true as const, error: null };
+};
+
+const resolveClientIp = (req: Request) => {
+  const forwardedFor = req.headers.get("x-forwarded-for") ?? "";
+  const firstForwardedIp = forwardedFor.split(",")[0]?.trim() ?? "";
+  const connectingIp = req.headers.get("cf-connecting-ip")?.trim() ?? "";
+  const realIp = req.headers.get("x-real-ip")?.trim() ?? "";
+  return firstForwardedIp || connectingIp || realIp || "";
+};
+
+const verifyTurnstileToken = async (
+  secret: string,
+  token: string,
+  remoteIp: string
+) => {
+  const params = new URLSearchParams();
+  params.set("secret", secret);
+  params.set("response", token);
+  if (remoteIp) {
+    params.set("remoteip", remoteIp);
+  }
+
+  const response = await fetch(
+    "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    }
+  );
+
+  if (!response.ok) {
+    return false;
+  }
+
+  const result = (await response.json()) as TurnstileVerifyResult;
+  if (!result.success) {
+    console.error("tenant-login turnstile verification failed", {
+      errorCodes: result["error-codes"] ?? [],
+    });
+  }
+  return !!result.success;
 };
 
 const resolveCorsHeaders = (req: Request) => {
@@ -122,13 +171,32 @@ serve(async (req) => {
   }
 
   try {
-    const { access_code } = await req.json();
+    const { access_code, turnstile_token } = await req.json();
     if (
       typeof access_code !== "string" ||
       !access_code.trim() ||
       access_code.trim().length > 64
     ) {
       return jsonResponse(400, { error: "Invalid request" });
+    }
+
+    const turnstileSecret = Deno.env.get("ITX_TURNSTILE_SECRET") ?? "";
+    if (turnstileSecret) {
+      if (
+        typeof turnstile_token !== "string" ||
+        !turnstile_token.trim() ||
+        turnstile_token.trim().length > 4096
+      ) {
+        return jsonResponse(400, { error: "Turnstile verification required" });
+      }
+      const isTurnstileValid = await verifyTurnstileToken(
+        turnstileSecret,
+        turnstile_token.trim(),
+        resolveClientIp(req)
+      );
+      if (!isTurnstileValid) {
+        return jsonResponse(403, { error: "Turnstile verification failed" });
+      }
     }
 
     const supabaseUrl = Deno.env.get("ITX_SUPABASE_URL");
@@ -156,6 +224,7 @@ serve(async (req) => {
     // 2) per-client-per-access-code to slow targeted brute force attempts
     const perClientLimit = await enforceRateLimit(
       adminClient,
+      clientFingerprint,
       perClientScope,
       20,
       60
@@ -176,6 +245,7 @@ serve(async (req) => {
 
     const perAccessLimit = await enforceRateLimit(
       adminClient,
+      `${clientFingerprint}-${accessCodeHash.slice(0, 16)}`,
       perClientAccessScope,
       10,
       60

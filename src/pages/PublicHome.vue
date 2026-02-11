@@ -28,6 +28,10 @@
           Password
           <input v-model="password" type="password" placeholder="Enter password" />
         </label>
+        <label v-if="turnstileSiteKey">
+          Security Check
+          <div :ref="setTurnstileContainerRef"></div>
+        </label>
         <p class="muted support-note">
           Trouble signing in? Contact support at support@itemtraxx.com.
           By using this software, you agree to our
@@ -57,6 +61,7 @@
 import { onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { tenantLogin } from "../services/authService";
+import { useTurnstile } from "../composables/useTurnstile";
 
 const router = useRouter();
 const accessCode = ref("");
@@ -73,6 +78,27 @@ const termsUrl =
 const privacyUrl =
   import.meta.env.VITE_PRIVACY_URL ||
   "https://github.com/ItemTraxxCo/ItemTraxx-App/blob/main/PRIVACY.md";
+const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY as
+  | string
+  | undefined;
+const {
+  containerRef: turnstileContainerRef,
+  token: turnstileToken,
+  reset: resetTurnstile,
+} = useTurnstile(turnstileSiteKey);
+const setTurnstileContainerRef = (
+  el: Element | { $el?: Element } | null
+) => {
+  if (el instanceof HTMLElement) {
+    turnstileContainerRef.value = el;
+    return;
+  }
+  if (el && "$el" in el && el.$el instanceof HTMLElement) {
+    turnstileContainerRef.value = el.$el;
+    return;
+  }
+  turnstileContainerRef.value = null;
+};
 let toastTimer: number | null = null;
 
 const showLimiterUnavailableToast = () => {
@@ -98,7 +124,15 @@ const handleTenantLogin = async () => {
       await router.push("/super-auth");
       return;
     }
-    await tenantLogin(accessCode.value.trim(), password.value);
+    if (turnstileSiteKey && !turnstileToken.value) {
+      error.value = "Complete the security check and try again.";
+      return;
+    }
+    await tenantLogin(
+      accessCode.value.trim(),
+      password.value,
+      turnstileToken.value || undefined
+    );
     await router.push("/tenant/checkout");
   } catch (err) {
     if (err instanceof Error && err.message === "LIMITER_UNAVAILABLE") {
@@ -106,8 +140,15 @@ const handleTenantLogin = async () => {
       showLimiterUnavailableToast();
       return;
     }
+    if (err instanceof Error && err.message === "TURNSTILE_FAILED") {
+      error.value = "Security check failed. Please try again.";
+      return;
+    }
     error.value = err instanceof Error ? err.message : "Sign in failed.";
   } finally {
+    if (turnstileSiteKey) {
+      resetTurnstile();
+    }
     isLoading.value = false;
   }
 };

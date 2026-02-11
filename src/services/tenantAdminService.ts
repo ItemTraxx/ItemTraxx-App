@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { invokeEdgeFunction } from "./edgeFunctionClient";
 
 type CreateTenantAdminPayload = {
   new_email: string;
@@ -38,29 +39,23 @@ export const createTenantAdmin = async (payload: CreateTenantAdminPayload) => {
     throw new Error("Unauthorized.");
   }
 
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
   const accessToken = session.access_token;
-  const { data, error } = await supabase.functions.invoke(
+  const result = await invokeEdgeFunction<{ success: boolean; user_id?: string }, CreateTenantAdminPayload>(
     "create-tenant-admin",
     {
+      method: "POST",
       body: payload,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        apikey: anonKey ?? "",
-      },
+      accessToken,
     }
   );
 
-  if (error) {
-    const message =
-      typeof error === "object" && error && "message" in error
-        ? String((error as { message?: string }).message ?? "")
-        : "";
-    if (message.toLowerCase().includes("credentials")) {
+  if (!result.ok) {
+    const message = (result.error ?? "").toLowerCase();
+    if (message.includes("credentials")) {
       throw new Error("Invalid credentials.");
     }
     throw new Error("Unable to create admin.");
   }
 
-  return data as { success: boolean; user_id?: string };
+  return result.data as { success: boolean; user_id?: string };
 };
