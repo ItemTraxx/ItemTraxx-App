@@ -46,12 +46,16 @@
       <p>Please press Cmd+shift+R (macOS), or Ctrl+Shift+R (Windows) to finish signing out.</p>
     </div>
     <router-view v-else />
+    <Analytics />
+    <SpeedInsights />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { Analytics } from "@vercel/analytics/vue";
+import { SpeedInsights } from "@vercel/speed-insights/vue";
 import { signOut } from "./services/authService";
 import { getEdgeFunctionsBaseUrl } from "./services/edgeFunctionClient";
 import { getAuthState } from "./store/authState";
