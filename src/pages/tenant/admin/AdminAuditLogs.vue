@@ -1,10 +1,22 @@
 <template>
   <div class="page">
+    <div class="page-nav-left">
+      <RouterLink class="button-link" to="/tenant/admin">Return to admin panel</RouterLink>
+    </div>
     <h1>Admin Audit Logs</h1>
     <p>Track admin actions.</p>
     <p class="muted">Ability to export admin audit logs data to PDF and CSV coming soon.</p>
 
     <div class="card">
+      <label>
+        Search logs
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="Search by admin, action, entity, or details"
+        />
+      </label>
+      <p class="muted">Showing {{ filteredLogs.length }} of {{ logs.length }} log entries.</p>
       <p v-if="isLoading" class="muted">Loading logs...</p>
       <table v-else class="table">
         <thead>
@@ -17,7 +29,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="log in logs" :key="log.id">
+          <tr v-for="log in filteredLogs" :key="log.id">
             <td>{{ formatTime(log.created_at) }}</td>
             <td>{{ log.actor_profile?.auth_email || log.actor_id }}</td>
             <td>{{ log.action_type }}</td>
@@ -30,26 +42,46 @@
               <span v-else class="muted">-</span>
             </td>
           </tr>
+          <tr v-if="!filteredLogs.length">
+            <td colspan="5" class="muted">No logs match your search.</td>
+          </tr>
         </tbody>
       </table>
       <p v-if="error" class="error">{{ error }}</p>
     </div>
 
-    <div class="admin-actions">
-      <RouterLink class="link" to="/tenant/admin">Back to admin panel home</RouterLink>
-      <RouterLink class="link" to="/tenant/checkout">Return to checkout</RouterLink>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { fetchAdminAuditLogs, type AdminAuditLog } from "../../../services/adminAuditService";
 
 const logs = ref<AdminAuditLog[]>([]);
 const isLoading = ref(false);
 const error = ref("");
+const searchQuery = ref("");
+
+const filteredLogs = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  if (!query) {
+    return logs.value;
+  }
+
+  return logs.value.filter((log) => {
+    const actor = (log.actor_profile?.auth_email || log.actor_id || "").toLowerCase();
+    const action = (log.action_type || "").toLowerCase();
+    const entity = (log.entity_type || "").toLowerCase();
+    const metadata = log.metadata ? JSON.stringify(log.metadata).toLowerCase() : "";
+    return (
+      actor.includes(query) ||
+      action.includes(query) ||
+      entity.includes(query) ||
+      metadata.includes(query)
+    );
+  });
+});
 
 const loadLogs = async () => {
   isLoading.value = true;

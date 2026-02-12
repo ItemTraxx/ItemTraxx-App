@@ -1,5 +1,8 @@
 <template>
   <div class="page">
+    <div class="page-nav-left">
+      <RouterLink class="button-link" to="/tenant/admin">Return to admin panel</RouterLink>
+    </div>
     <h1>Student Management</h1>
     <p>Add students and view details.</p>
     <p class="muted">Ability to export student data to PDF and CSV coming soon.</p>
@@ -110,10 +113,6 @@
       </div>
     </div>
 
-    <div class="admin-actions">
-      <RouterLink class="link" to="/tenant/admin">Back to admin panel home</RouterLink>
-      <RouterLink class="link" to="/tenant/checkout">Return to checkout</RouterLink>
-    </div>
   </div>
 </template>
 
@@ -292,7 +291,12 @@ const closeDetails = () => {
 
 const formatTime = (value: string) => {
   const date = new Date(value);
-  return date.toLocaleString();
+  return date.toLocaleString(undefined, {
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 };
 
 const removeStudent = async (item: StudentItem) => {

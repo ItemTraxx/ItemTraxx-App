@@ -1,5 +1,8 @@
 <template>
   <div class="page">
+    <div class="page-nav-left">
+      <RouterLink class="button-link" to="/tenant/admin">Return to admin panel</RouterLink>
+    </div>
     <h1>Usage Statistics</h1>
     <p>Recent activity and inventory summary.</p>
     <p class="muted">Ability to export usage data to PDF and CSV coming soon.</p>
@@ -39,10 +42,6 @@
       <p v-if="error" class="error">{{ error }}</p>
     </div>
 
-    <div class="admin-actions">
-      <RouterLink class="link" to="/tenant/admin">Back to admin panel home</RouterLink>
-      <RouterLink class="link" to="/tenant/checkout">Return to checkout</RouterLink>
-    </div>
   </div>
 </template>
 
