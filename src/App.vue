@@ -44,6 +44,7 @@
     <div v-if="!auth.isInitialized" class="page">
       <h1>bye bye 👋</h1>
       <p>Please press Cmd+shift+R (macOS), or Ctrl+Shift+R (Windows) to finish signing out.</p>
+      <button type="button" class="button-primary" @click="reloadApp">Reload</button>
     </div>
     <router-view v-else />
     <Analytics />
@@ -103,9 +104,17 @@ const openAdminPanel = async () => {
 };
 
 const logoutTenant = async () => {
+  const confirmed = window.confirm("Are you sure you want to log out?");
+  if (!confirmed) {
+    return;
+  }
   menuOpen.value = false;
   await signOut();
   await router.push("/");
+};
+
+const reloadApp = () => {
+  window.location.reload();
 };
 
 const refreshSystemStatus = async () => {
@@ -132,7 +141,7 @@ const refreshSystemStatus = async () => {
     };
 
     if (response.ok && payload.status === "operational") {
-      statusLabel.value = "Operational";
+      statusLabel.value = "Running";
       statusClass.value = "status-ok";
       return;
     }

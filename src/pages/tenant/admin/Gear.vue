@@ -1,5 +1,8 @@
 <template>
   <div class="page">
+    <div class="page-nav-left">
+      <RouterLink class="button-link" to="/tenant/admin">Return to admin panel</RouterLink>
+    </div>
     <h1>Gear Management</h1>
     <p>Add and manage gear.</p>
     <p class="muted">Ability to export gear data to PDF and CSV coming soon.</p>
@@ -21,7 +24,16 @@
         </label>
         <label>
           Notes
-          <textarea v-model="notes" rows="3" placeholder="Optional notes"></textarea>
+          <textarea
+            v-model="notes"
+            rows="3"
+            placeholder="Optional notes"
+            maxlength="500"
+          ></textarea>
+          <div class="muted form-help-row">
+            <span>Character limit 500</span>
+            <span>{{ notes.length }}/500</span>
+          </div>
         </label>
         <button type="submit" class="button-primary" :disabled="isSaving">Add gear</button>
       </form>
@@ -80,21 +92,31 @@
             <td>
               <span v-if="editingId !== item.id">{{ item.status }}</span>
               <select v-else v-model="editStatus">
-                <option v-for="option in statusOptions" :key="option" :value="option">
+                <option v-if="editStatus === 'checked_out'" value="checked_out" disabled>
+                  checked_out (managed by checkout)
+                </option>
+                <option v-for="option in editableStatusOptions" :key="option" :value="option">
                   {{ option }}
                 </option>
               </select>
             </td>
-            <td>
+            <td class="gear-notes-cell">
               <span v-if="editingId !== item.id">{{ item.notes || "-" }}</span>
-              <input
-                v-else
-                v-model="editNotes"
-                type="text"
-                placeholder="Notes"
-              />
+              <div v-else>
+                <textarea
+                  v-model="editNotes"
+                  class="gear-notes-input"
+                  rows="3"
+                  maxlength="500"
+                  placeholder="Notes"
+                ></textarea>
+                <div class="muted form-help-row">
+                  <span>Character limit 500</span>
+                  <span>{{ editNotes.length }}/500</span>
+                </div>
+              </div>
             </td>
-            <td>
+            <td :class="{ 'edit-actions-cell': editingId === item.id }">
               <div class="admin-actions">
                 <button
                   v-if="editingId !== item.id"
@@ -126,10 +148,6 @@
       </table>
     </div>
 
-    <div class="admin-actions">
-      <RouterLink class="link" to="/tenant/admin">Back to admin panel home</RouterLink>
-      <RouterLink class="link" to="/tenant/checkout">Return to checkout</RouterLink>
-    </div>
   </div>
 </template>
 
@@ -162,6 +180,7 @@ const statusOptions = [
   "retired",
   "in_studio_only",
 ];
+const editableStatusOptions = statusOptions.filter((option) => option !== "checked_out");
 const editingId = ref<string | null>(null);
 const editName = ref("");
 const editBarcode = ref("");

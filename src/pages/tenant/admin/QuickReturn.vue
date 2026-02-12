@@ -1,5 +1,8 @@
 <template>
   <div class="page">
+    <div class="page-nav-left">
+      <RouterLink class="button-link" to="/tenant/admin">Return to admin panel</RouterLink>
+    </div>
     <h1>Quick Return</h1>
     <p>Return items by barcode.</p>
 
@@ -45,10 +48,6 @@
       </div>
     </div>
 
-    <div class="admin-actions">
-      <RouterLink class="link" to="/tenant/admin">Back to admin panel home</RouterLink>
-      <RouterLink class="link" to="/tenant/checkout">Return to checkout</RouterLink>
-    </div>
   </div>
 </template>
 

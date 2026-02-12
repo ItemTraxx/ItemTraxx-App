@@ -1,5 +1,8 @@
 <template>
   <div class="page">
+    <div class="page-nav-left">
+      <RouterLink class="button-link" to="/tenant/admin">Return to admin panel</RouterLink>
+    </div>
     <h1>User Admins</h1>
     <p>Create user admin accounts for this user.</p>
     <p class="muted">Ability to export user admin data to PDF and CSV coming soon.</p>
@@ -70,9 +73,6 @@
       <p v-if="success" class="success">{{ success }}</p>
     </div>
 
-    <div class="admin-actions">
-      <RouterLink class="link" to="/tenant/admin">Back to admin</RouterLink>
-    </div>
   </div>
 </template>
 

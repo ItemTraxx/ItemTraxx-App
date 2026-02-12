@@ -1,5 +1,10 @@
 <template>
     <div class="page">
+      <div class="page-nav-left">
+        <button type="button" class="button-link" @click="returnToCheckout">
+          Return to checkout
+        </button>
+      </div>
       <h1>Admin Panel</h1>
       <p>Welcome, {{ adminEmail }}</p>
     <div class="admin-grid">
@@ -31,11 +36,6 @@
         <h2>Admin management</h2>
         <p>Create and manage admin accounts for this user.</p>
       </RouterLink>
-    </div>
-    <div class="admin-actions">
-      <button type="button" class="link" @click="returnToCheckout">
-        Return to checkout
-      </button>
     </div>
   </div>
 </template>

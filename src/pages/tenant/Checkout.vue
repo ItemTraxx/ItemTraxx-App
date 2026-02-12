@@ -73,7 +73,7 @@
         <div v-if="barcodes.length" class="list">
           <p>Items</p>
           <ul>
-            <li v-for="item in barcodes" :key="item.barcode">
+            <li v-for="item in barcodes" :key="item.barcode" class="checkout-item-row">
               {{ item.name }}
               <span class="muted">({{ item.barcode }})</span>
               <span class="tag" :class="getActionClass(item.barcode)">
@@ -98,8 +98,8 @@
       <p v-else class="muted">Enter a student ID to begin.</p>
       <p v-if="error" class="error">{{ error }}</p>
       <p v-if="success" class="success">{{ success }}</p>
-      <div v-if="toastMessage" class="toast">
-        <div class="toast-title">Transaction complete ({{ toastStatus }}).</div>
+      <div v-if="toastMessage" class="toast" :class="{ 'toast-persist': toastStatus === 'Processing' }">
+        <div class="toast-title">{{ toastTitle }}</div>
         <div class="toast-body">{{ toastMessage }}</div>
       </div>
     </div>
@@ -131,9 +131,10 @@ const student = ref<StudentSummary | null>(null);
 const checkedOutGear = ref<GearSummary[]>([]);
 const lastSummary = ref("");
 const toastMessage = ref("");
-const toastStatus = ref<"Success" | "Failed">("Success");
+const toastStatus = ref<"Success" | "Failed" | "Processing">("Success");
 const barcodeField = ref<HTMLInputElement | null>(null);
 const logoUrl = import.meta.env.VITE_LOGO_URL as string | undefined;
+const toastTitle = ref("");
 
 
 const loadStudent = async () => {
@@ -211,33 +212,62 @@ const getActionClass = (barcode: string) => {
 };
 
 const submit = async () => {
-  error.value = "";
-  success.value = "";
-  if (barcodeInput.value.trim()) {
-    await addBarcode();
-  }
-  if (!studentId.value.trim() || barcodes.value.length === 0) {
-    error.value = "Enter a student ID and at least one barcode.";
+  if (isSubmitting.value) {
     return;
   }
 
-  if (!student.value) {
-    await loadStudent();
-    if (!student.value) {
+  error.value = "";
+  success.value = "";
+  isSubmitting.value = true;
+
+  try {
+    toastStatus.value = "Processing";
+    toastTitle.value = "Transaction processing...";
+    toastMessage.value = "Please wait while your transaction is submitted.";
+
+    if (barcodeInput.value.trim()) {
+      await addBarcode();
+    }
+    if (!studentId.value.trim() || barcodes.value.length === 0) {
+      error.value = "Enter a student ID and at least one barcode.";
+      toastStatus.value = "Failed";
+      toastTitle.value = "Transaction failed.";
+      toastMessage.value = error.value;
       return;
     }
-  }
 
-  isSubmitting.value = true;
-  try {
+    if (!student.value) {
+      await loadStudent();
+      if (!student.value) {
+        toastStatus.value = "Failed";
+        toastTitle.value = "Transaction failed.";
+        toastMessage.value = error.value || "Unable to load student.";
+        return;
+      }
+    }
+
+    let checkoutCount = 0;
+    let returnCount = 0;
+    for (const item of barcodes.value) {
+      const isReturn = checkedOutGear.value.some(
+        (checkedOutItem) => checkedOutItem.barcode === item.barcode
+      );
+      if (isReturn) {
+        returnCount += 1;
+      } else {
+        checkoutCount += 1;
+      }
+    }
+
     await submitCheckoutReturn({
       student_id: studentId.value.trim(),
       gear_barcodes: barcodes.value.map((item) => item.barcode),
       action_type: "auto",
     });
     success.value = " ";
-    lastSummary.value = `Processed ${barcodes.value.length} item(s).`;
+    lastSummary.value = `processed:\n${checkoutCount} checkout(s)\n${returnCount} return(s)`;
     toastStatus.value = "Success";
+    toastTitle.value = "Transaction complete (Success).";
     toastMessage.value = lastSummary.value;
     barcodes.value = [];
     barcodeInput.value = "";
@@ -246,13 +276,16 @@ const submit = async () => {
     checkedOutGear.value = [];
     window.setTimeout(() => {
       lastSummary.value = "";
+      toastTitle.value = "";
       toastMessage.value = "";
     }, 4000);
   } catch (err) {
     error.value = err instanceof Error ? err.message : "Request failed.";
     toastStatus.value = "Failed";
+    toastTitle.value = "Transaction complete (Failed).";
     toastMessage.value = error.value;
     window.setTimeout(() => {
+      toastTitle.value = "";
       toastMessage.value = "";
     }, 4000);
   } finally {
