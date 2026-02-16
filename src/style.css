@@ -11,13 +11,13 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   color: #f9f9f7;
-  background-color: #000000;
-  --surface: #0f1114;
-  --surface-2: #141820;
+  background-color: #0c1016;
+  --surface: #131922;
+  --surface-2: #1a2230;
   --border: rgba(255, 255, 255, 0.12);
   --muted: rgba(249, 249, 247, 0.7);
-  --button-bg: #141820;
-  --button-border: #263044;
+  --button-bg: #1a2230;
+  --button-border: #2d3a51;
   --button-primary-bg: #19c2a8;
   --button-primary-border: #19c2a8;
   --button-primary-text: #000000;
