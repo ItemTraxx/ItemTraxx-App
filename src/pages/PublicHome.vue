@@ -40,7 +40,9 @@
           <a :href="privacyUrl" target="_blank" rel="noreferrer">privacy policy</a>.
         </p>
         <div class="form-actions">
-          <button type="submit" :disabled="isLoading">Sign in</button>
+          <button type="submit" class="button-primary" :disabled="isLoading">
+            Sign in
+          </button>
         </div>
       </form>
 
@@ -51,7 +53,7 @@
       <div class="toast-body">Signing you in.</div>
     </div>
     <div v-if="toastMessage" class="toast">
-      <div class="toast-title">Rate Limit reached. Please try again later.</div>
+      <div class="toast-title">{{ toastTitle }}</div>
       <div class="toast-body">{{ toastMessage }}</div>
     </div>
   </div>
@@ -68,6 +70,7 @@ const accessCode = ref("");
 const password = ref("");
 const error = ref("");
 const isLoading = ref(false);
+const toastTitle = ref("");
 const toastMessage = ref("");
 const superAdminAccessCode = import.meta.env
   .VITE_SUPER_ADMIN_ACCESS_CODE as string | undefined;
@@ -101,16 +104,28 @@ const setTurnstileContainerRef = (
 };
 let toastTimer: number | null = null;
 
-const showLimiterUnavailableToast = () => {
-  toastMessage.value =
-    "Login unavailable. Please try again later.";
+const showToast = (title: string, message: string) => {
+  toastTitle.value = title;
+  toastMessage.value = message;
   if (toastTimer) {
     window.clearTimeout(toastTimer);
   }
   toastTimer = window.setTimeout(() => {
+    toastTitle.value = "";
     toastMessage.value = "";
     toastTimer = null;
   }, 4000);
+};
+
+const isCredentialFailure = (message: string) => {
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized.includes("invalid tenant access code") ||
+    normalized.includes("invalid access code") ||
+    normalized.includes("invalid credentials") ||
+    normalized.includes("invalid password") ||
+    normalized === "unauthorized"
+  );
 };
 
 const handleTenantLogin = async () => {
@@ -137,14 +152,23 @@ const handleTenantLogin = async () => {
   } catch (err) {
     if (err instanceof Error && err.message === "LIMITER_UNAVAILABLE") {
       error.value = "";
-      showLimiterUnavailableToast();
+      showToast(
+        "Rate Limit reached. Please try again later.",
+        "Login unavailable. Please try again later."
+      );
       return;
     }
     if (err instanceof Error && err.message === "TURNSTILE_FAILED") {
       error.value = "Security check failed. Please try again.";
       return;
     }
-    error.value = err instanceof Error ? err.message : "Sign in failed.";
+    const errorMessage = err instanceof Error ? err.message : "Sign in failed.";
+    if (isCredentialFailure(errorMessage)) {
+      error.value = "";
+      showToast("Sign in failed.", errorMessage);
+      return;
+    }
+    error.value = errorMessage;
   } finally {
     if (turnstileSiteKey) {
       resetTurnstile();

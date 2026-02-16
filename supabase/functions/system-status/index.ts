@@ -27,6 +27,65 @@ const resolveCorsHeaders = (req: Request) => {
   return { hasOrigin, originAllowed, headers };
 };
 
+type IncidentImpact =
+  | "operational"
+  | "degraded_performance"
+  | "partial_outage"
+  | "full_outage";
+
+type IncidentComponent = {
+  current_status?: IncidentImpact;
+};
+
+type OngoingIncident = {
+  current_worst_impact?: IncidentImpact;
+  affected_components?: IncidentComponent[];
+};
+
+type IncidentWidgetPayload = {
+  ongoing_incidents?: OngoingIncident[];
+  in_progress_maintenances?: unknown[];
+  scheduled_maintenances?: unknown[];
+};
+
+const resolveIncidentStatus = (payload: IncidentWidgetPayload) => {
+  const ongoing = payload.ongoing_incidents ?? [];
+  const inProgressMaintenances = payload.in_progress_maintenances ?? [];
+  const scheduledMaintenances = payload.scheduled_maintenances ?? [];
+
+  const impacts: IncidentImpact[] = [];
+
+  for (const incident of ongoing) {
+    if (incident.current_worst_impact) {
+      impacts.push(incident.current_worst_impact);
+    }
+    for (const component of incident.affected_components ?? []) {
+      if (component.current_status) {
+        impacts.push(component.current_status);
+      }
+    }
+  }
+
+  if (impacts.includes("full_outage")) {
+    return { status: "down", summary: "incident full outage" as const };
+  }
+
+  if (
+    ongoing.length > 0 ||
+    impacts.includes("partial_outage") ||
+    impacts.includes("degraded_performance") ||
+    inProgressMaintenances.length > 0
+  ) {
+    return { status: "degraded", summary: "active incident or maintenance" as const };
+  }
+
+  if (scheduledMaintenances.length > 0) {
+    return { status: "operational", summary: "scheduled maintenance" as const };
+  }
+
+  return { status: "operational", summary: "no active incidents" as const };
+};
+
 serve(async (req) => {
   const { hasOrigin, originAllowed, headers } = resolveCorsHeaders(req);
 
@@ -54,6 +113,7 @@ serve(async (req) => {
   const startedAt = Date.now();
   const supabaseUrl = Deno.env.get("ITX_SUPABASE_URL");
   const serviceKey = Deno.env.get("ITX_SECRET_KEY");
+  const incidentWidgetUrl = Deno.env.get("ITX_INCIDENT_IO_WIDGET_URL");
 
   if (!supabaseUrl || !serviceKey) {
     return jsonResponse(500, {
@@ -89,12 +149,50 @@ serve(async (req) => {
       });
     }
 
+    let incidentStatus: "operational" | "degraded" | "down" = "operational";
+    let incidentSummary = "not configured";
+    let incidentCheck: "ok" | "warn" | "unavailable" = "unavailable";
+
+    if (incidentWidgetUrl) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        let response: Response;
+        try {
+          response = await fetch(incidentWidgetUrl, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+
+        if (!response.ok) {
+          throw new Error(`Incident widget request failed (${response.status})`);
+        }
+
+        const payload = (await response.json()) as IncidentWidgetPayload;
+        const mapped = resolveIncidentStatus(payload);
+        incidentStatus = mapped.status;
+        incidentSummary = mapped.summary;
+        incidentCheck = mapped.status === "operational" ? "ok" : "warn";
+      } catch (error) {
+        incidentStatus = "operational";
+        incidentSummary = "incident source unavailable";
+        incidentCheck = "unavailable";
+        console.error("system-status incident.io fetch failed:", error);
+      }
+    }
+
     return jsonResponse(200, {
-      status: "operational",
+      status: incidentStatus,
       checks: {
         config: "ok",
         db: "ok",
+        incident_io: incidentCheck,
       },
+      incident_summary: incidentSummary,
       duration_ms: Date.now() - startedAt,
       checked_at: new Date().toISOString(),
     });

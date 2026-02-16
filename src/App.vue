@@ -35,10 +35,15 @@
         <a class="menu-item" href="mailto:suport@itemtraxx.com">
           Contact Support
         </a>
-        <div class="menu-item muted menu-status">
+        <a
+          class="menu-item muted menu-status"
+          href="https://statuspage.incident.io/itemtraxx-status"
+          target="_blank"
+          rel="noreferrer"
+        >
           <span class="status-dot" :class="statusClass" aria-hidden="true"></span>
           System Status: {{ statusLabel }}
-        </div>
+        </a>
       </div>
     </div>
     <div v-if="!auth.isInitialized" class="page">
