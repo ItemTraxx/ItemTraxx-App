@@ -59,7 +59,11 @@ export const useTurnstile = (siteKey?: string) => {
       token.value = "";
       return;
     }
-    window.turnstile.reset(widgetId);
+    try {
+      window.turnstile.reset(widgetId);
+    } catch {
+      // Keep login flow resilient even if Turnstile script glitches.
+    }
     token.value = "";
   };
 

@@ -170,10 +170,14 @@ const handleTenantLogin = async () => {
     }
     error.value = errorMessage;
   } finally {
-    if (turnstileSiteKey) {
-      resetTurnstile();
-    }
     isLoading.value = false;
+    if (turnstileSiteKey) {
+      try {
+        resetTurnstile();
+      } catch (turnstileError) {
+        console.error("Failed to reset Turnstile widget:", turnstileError);
+      }
+    }
   }
 };
 
