@@ -160,24 +160,31 @@ serve(async (req) => {
       recentActions = recentActionsResult.data ?? [];
     }
 
-    const [tenantsData, gearData, studentsData, checkoutData, runtimeResult, alertRulesResult, approvalsResult, jobsResult] = await Promise.all([
-      adminClient.from("tenants").select("id, name").limit(400),
-      adminClient.from("gear").select("id, tenant_id, status, checked_out_at").limit(5000),
-      adminClient.from("students").select("id, tenant_id").limit(5000),
-      adminClient.from("gear_logs").select("id, tenant_id, action_time").gte("action_time", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()).limit(5000),
-      adminClient.from("app_runtime_config").select("key, value"),
-      adminClient.from("super_alert_rules").select("id, name, metric_key, threshold, is_enabled").eq("is_enabled", true),
-      adminClient.from("super_approvals").select("id, action_type, status, created_at, requested_by").eq("status", "pending").order("created_at", { ascending: false }).limit(20),
-      adminClient.from("super_jobs").select("id, job_type, status, details, created_at, updated_at").order("updated_at", { ascending: false }).limit(20),
-    ]);
+    const [runtimeResult, alertRulesResult, approvalsResult, jobsResult] =
+      await Promise.all([
+        adminClient.from("app_runtime_config").select("key, value"),
+        adminClient
+          .from("super_alert_rules")
+          .select("id, name, metric_key, threshold, is_enabled")
+          .eq("is_enabled", true),
+        adminClient
+          .from("super_approvals")
+          .select("id, action_type, status, created_at, requested_by")
+          .eq("status", "pending")
+          .order("created_at", { ascending: false })
+          .limit(20),
+        adminClient
+          .from("super_jobs")
+          .select("id, job_type, status, details, created_at, updated_at")
+          .order("updated_at", { ascending: false })
+          .limit(20),
+      ]);
 
     const runtimeConfig = runtimeResult.error
       ? {}
       : Object.fromEntries((runtimeResult.data ?? []).map((item) => [item.key, item.value]));
 
-    const tenantById = new Map(((tenantsData.data ?? []) as Array<{ id: string; name: string }>).map((t) => [t.id, t.name]));
-
-    const metricsMap = new Map<string, {
+    const tenantMetrics: Array<{
       tenant_id: string;
       tenant_name: string;
       gear_total: number;
@@ -185,56 +192,14 @@ serve(async (req) => {
       active_checkouts: number;
       overdue_items: number;
       transactions_7d: number;
-    }>();
-
-    const ensureMetric = (tenantId: string) => {
-      if (!metricsMap.has(tenantId)) {
-        metricsMap.set(tenantId, {
-          tenant_id: tenantId,
-          tenant_name: tenantById.get(tenantId) ?? tenantId,
-          gear_total: 0,
-          students_total: 0,
-          active_checkouts: 0,
-          overdue_items: 0,
-          transactions_7d: 0,
-        });
-      }
-      return metricsMap.get(tenantId)!;
-    };
-
-    const now = Date.now();
-    for (const row of (gearData.data ?? []) as Array<{ tenant_id: string; status: string; checked_out_at: string | null }>) {
-      const metric = ensureMetric(row.tenant_id);
-      metric.gear_total += 1;
-      if (row.status === "checked_out") {
-        metric.active_checkouts += 1;
-        if (row.checked_out_at) {
-          const ageHours = (now - Date.parse(row.checked_out_at)) / (1000 * 60 * 60);
-          if (ageHours > 72) metric.overdue_items += 1;
-        }
-      }
-    }
-
-    for (const row of (studentsData.data ?? []) as Array<{ tenant_id: string }>) {
-      const metric = ensureMetric(row.tenant_id);
-      metric.students_total += 1;
-    }
-
-    for (const row of (checkoutData.data ?? []) as Array<{ tenant_id: string }>) {
-      const metric = ensureMetric(row.tenant_id);
-      metric.transactions_7d += 1;
-    }
-
-    const tenantMetrics = Array.from(metricsMap.values()).sort(
-      (a, b) => b.transactions_7d - a.transactions_7d
-    );
+    }> = [];
 
     const alerts: Array<{ id: string; name: string; metric_key: string; threshold: number; current: number; severity: "warn" | "critical" }> = [];
     const aggregate = {
       suspended_tenants: suspendedTenants,
-      overdue_items: tenantMetrics.reduce((sum, item) => sum + item.overdue_items, 0),
-      active_checkouts: tenantMetrics.reduce((sum, item) => sum + item.active_checkouts, 0),
-      transactions_7d: tenantMetrics.reduce((sum, item) => sum + item.transactions_7d, 0),
+      overdue_items: 0,
+      active_checkouts: 0,
+      transactions_7d: 0,
     };
 
     if (!alertRulesResult.error) {

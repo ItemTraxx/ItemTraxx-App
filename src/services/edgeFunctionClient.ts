@@ -53,6 +53,8 @@ const getDefaultHeaders = (accessToken?: string) => {
   return headers;
 };
 
+const EDGE_FUNCTION_TIMEOUT_MS = 10000;
+
 const isInvalidJwtError = (payload: unknown) => {
   const parsed = payload as { error?: string; message?: string } | null;
   const message = (parsed?.error ?? parsed?.message ?? "").toLowerCase();
@@ -91,7 +93,17 @@ const requestEdgeFunction = async <TData = unknown, TBody = unknown>(
   }
 
   try {
-    const response = await fetch(`${baseUrl}/${functionName}`, init);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), EDGE_FUNCTION_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/${functionName}`, {
+        ...init,
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
     let parsed: unknown = null;
     try {
       parsed = await response.json();
@@ -121,7 +133,15 @@ const requestEdgeFunction = async <TData = unknown, TBody = unknown>(
       data: (parsed as TData) ?? null,
       error: "",
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return {
+        ok: false,
+        status: 0,
+        data: null,
+        error: "Request timed out. Please try again.",
+      };
+    }
     return {
       ok: false,
       status: 0,
@@ -136,6 +156,16 @@ export const invokeEdgeFunction = async <TData = unknown, TBody = unknown>(
   options: EdgeFunctionOptions<TBody> = {}
 ): Promise<EdgeFunctionResult<TData>> => {
   const first = await requestEdgeFunction<TData, TBody>(functionName, options);
+  const method = options.method ?? "POST";
+
+  if (
+    method === "GET" &&
+    first.status === 0 &&
+    first.error.toLowerCase().includes("timed out")
+  ) {
+    return requestEdgeFunction<TData, TBody>(functionName, options);
+  }
+
   if (
     first.status === 401 &&
     isInvalidJwtError({ error: first.error }) &&

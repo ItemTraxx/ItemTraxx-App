@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { invokeEdgeFunction } from "./edgeFunctionClient";
+import { TimeoutError, withTimeout } from "./asyncUtils";
 import {
   clearAdminVerification,
   clearAuthState,
@@ -26,12 +27,27 @@ type TenantRow = {
 const getTenantLoginFunctionName = () =>
   import.meta.env.VITE_TENANT_LOGIN_FUNCTION || "tenant-login";
 
+const AUTH_QUERY_TIMEOUT_MS = 7000;
+
 const fetchProfile = async (userId: string): Promise<ProfileRow | null> => {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, role, tenant_id, auth_email, is_active")
-    .eq("id", userId)
-    .single();
+  let data: unknown = null;
+  let error: unknown = null;
+  try {
+    const response = await withTimeout(
+      supabase
+        .from("profiles")
+        .select("id, role, tenant_id, auth_email, is_active")
+        .eq("id", userId)
+        .single(),
+      AUTH_QUERY_TIMEOUT_MS,
+      "Profile lookup timed out."
+    );
+    data = response.data;
+    error = response.error;
+  } catch (requestError) {
+    console.error("Profile lookup failed:", requestError);
+    return null;
+  }
 
   if (error) {
     return null;
@@ -41,11 +57,24 @@ const fetchProfile = async (userId: string): Promise<ProfileRow | null> => {
 };
 
 const fetchTenantStatus = async (tenantId: string): Promise<TenantRow | null> => {
-  const { data, error } = await supabase
-    .from("tenants")
-    .select("id, status")
-    .eq("id", tenantId)
-    .single();
+  let data: unknown = null;
+  let error: unknown = null;
+  try {
+    const response = await withTimeout(
+      supabase
+        .from("tenants")
+        .select("id, status")
+        .eq("id", tenantId)
+        .single(),
+      AUTH_QUERY_TIMEOUT_MS,
+      "Tenant status lookup timed out."
+    );
+    data = response.data;
+    error = response.error;
+  } catch (requestError) {
+    console.error("Tenant status lookup failed:", requestError);
+    return null;
+  }
 
   if (error) return null;
   return data as TenantRow;
@@ -66,7 +95,23 @@ const handleSuspendedTenantSession = async (profile: ProfileRow | null) => {
 };
 
 export const refreshAuthFromSession = async () => {
-  const { data, error } = await supabase.auth.getSession();
+  let data: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"] | null =
+    null;
+  let error: Awaited<ReturnType<typeof supabase.auth.getSession>>["error"] | null =
+    null;
+  try {
+    const response = await withTimeout(
+      supabase.auth.getSession(),
+      AUTH_QUERY_TIMEOUT_MS,
+      "Session refresh timed out."
+    );
+    data = response.data;
+    error = response.error;
+  } catch (requestError) {
+    console.error("Session refresh failed:", requestError);
+    clearAuthState(true);
+    return;
+  }
 
   if (error || !data.session) {
     clearAuthState(true);
@@ -169,10 +214,23 @@ export const tenantLogin = async (
     throw new Error("Invalid tenant access code.");
   }
 
-  const { error: signInError } = await supabase.auth.signInWithPassword({
-    email: data.auth_email,
-    password,
-  });
+  let signInError: unknown = null;
+  try {
+    const signIn = await withTimeout(
+      supabase.auth.signInWithPassword({
+        email: data.auth_email,
+        password,
+      }),
+      AUTH_QUERY_TIMEOUT_MS,
+      "Sign in timed out."
+    );
+    signInError = signIn.error;
+  } catch (requestError) {
+    if (requestError instanceof TimeoutError) {
+      throw new Error("Sign in timed out. Please try again.");
+    }
+    throw requestError;
+  }
 
   if (signInError) {
     throw new Error("Invalid credentials.");
@@ -185,10 +243,23 @@ export const tenantLogin = async (
 
 export const adminLogin = async (email: string, password: string) => {
   const priorTenantContextId = getAuthState().tenantContextId;
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  let error: unknown = null;
+  try {
+    const signIn = await withTimeout(
+      supabase.auth.signInWithPassword({
+        email,
+        password,
+      }),
+      AUTH_QUERY_TIMEOUT_MS,
+      "Sign in timed out."
+    );
+    error = signIn.error;
+  } catch (requestError) {
+    if (requestError instanceof TimeoutError) {
+      throw new Error("Sign in timed out. Please try again.");
+    }
+    throw requestError;
+  }
 
   if (error) {
     throw new Error("Invalid credentials.");
@@ -225,10 +296,23 @@ export const adminLogin = async (email: string, password: string) => {
 };
 
 export const superAdminLogin = async (email: string, password: string) => {
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  let error: unknown = null;
+  try {
+    const signIn = await withTimeout(
+      supabase.auth.signInWithPassword({
+        email,
+        password,
+      }),
+      AUTH_QUERY_TIMEOUT_MS,
+      "Sign in timed out."
+    );
+    error = signIn.error;
+  } catch (requestError) {
+    if (requestError instanceof TimeoutError) {
+      throw new Error("Sign in timed out. Please try again.");
+    }
+    throw requestError;
+  }
 
   if (error) {
     throw new Error("Invalid credentials.");

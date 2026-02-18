@@ -1,11 +1,14 @@
 import { supabase } from "./supabaseClient";
 import { invokeEdgeFunction } from "./edgeFunctionClient";
+import { withTimeout } from "./asyncUtils";
 
 type CheckoutReturnPayload = {
   student_id: string;
   gear_barcodes: string[];
   action_type: "checkout" | "return" | "auto" | "admin_return";
 };
+
+const LOOKUP_TIMEOUT_MS = 7000;
 
 export const submitCheckoutReturn = async (
   payload: CheckoutReturnPayload
@@ -48,11 +51,15 @@ export type GearSummary = {
 };
 
 export const fetchGearByBarcode = async (barcode: string) => {
-  const { data, error } = await supabase
-    .from("gear")
-    .select("id, name, barcode, status")
-    .eq("barcode", barcode)
-    .single();
+  const { data, error } = await withTimeout(
+    supabase
+      .from("gear")
+      .select("id, name, barcode, status")
+      .eq("barcode", barcode)
+      .single(),
+    LOOKUP_TIMEOUT_MS,
+    "Barcode lookup timed out."
+  );
 
   if (error) {
     throw new Error("Invalid barcode.");
@@ -62,11 +69,15 @@ export const fetchGearByBarcode = async (barcode: string) => {
 };
 
 export const fetchStudentByStudentId = async (studentId: string) => {
-  const { data, error } = await supabase
-    .from("students")
-    .select("id, first_name, last_name, student_id")
-    .eq("student_id", studentId)
-    .single();
+  const { data, error } = await withTimeout(
+    supabase
+      .from("students")
+      .select("id, first_name, last_name, student_id")
+      .eq("student_id", studentId)
+      .single(),
+    LOOKUP_TIMEOUT_MS,
+    "Student lookup timed out."
+  );
 
   if (error) {
     throw new Error("Student not found.");
@@ -76,10 +87,14 @@ export const fetchStudentByStudentId = async (studentId: string) => {
 };
 
 export const fetchCheckedOutGear = async (studentUuid: string) => {
-  const { data, error } = await supabase
-    .from("gear")
-    .select("id, name, barcode, status")
-    .eq("checked_out_by", studentUuid);
+  const { data, error } = await withTimeout(
+    supabase
+      .from("gear")
+      .select("id, name, barcode, status")
+      .eq("checked_out_by", studentUuid),
+    LOOKUP_TIMEOUT_MS,
+    "Checked out gear lookup timed out."
+  );
 
   if (error) {
     throw new Error("Unable to load gear.");
