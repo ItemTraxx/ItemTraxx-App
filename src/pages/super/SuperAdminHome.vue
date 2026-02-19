@@ -33,7 +33,7 @@
     <nav class="page-nav-left">
       <RouterLink class="button-link" to="/super-admin/tenants">Tenants</RouterLink>
       <RouterLink class="button-link" to="/super-admin/admins">Tenant Admins</RouterLink>
-      <RouterLink class="button-link" to="/super-admin/gear">All Gear</RouterLink>
+      <RouterLink class="button-link" to="/super-admin/gear">All Items</RouterLink>
       <RouterLink class="button-link" to="/super-admin/students">All Students</RouterLink>
       <RouterLink class="button-link" to="/super-admin/logs">All Logs</RouterLink>
       <RouterLink class="button-link" to="/super-admin/broadcasts">Broadcasts</RouterLink>
@@ -210,7 +210,7 @@
         <thead>
           <tr>
             <th>Tenant</th>
-            <th>Gear</th>
+            <th>Items</th>
             <th>Students</th>
             <th>Active Checkouts</th>
             <th>Overdue</th>

@@ -36,10 +36,21 @@
 
     <div class="card">
       <h2>Students</h2>
+      <div class="form-grid-2">
+        <label>
+          Search students
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search by first name, last name, or student ID"
+          />
+        </label>
+      </div>
       <div class="form-actions">
         <button type="button" @click="exportCsv">Export CSV</button>
         <button type="button" @click="exportPdf">Export PDF</button>
       </div>
+      <p class="muted">Showing {{ filteredStudents.length }} of {{ students.length }} students.</p>
       <p v-if="isLoading" class="muted">Loading students...</p>
       <table v-else class="table">
         <thead>
@@ -50,14 +61,12 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in students" :key="item.id">
+          <tr v-for="item in filteredStudents" :key="item.id">
             <td>{{ item.last_name }}, {{ item.first_name }}</td>
             <td>{{ item.student_id }}</td>
             <td>
               <div class="admin-actions">
-                <button type="button" class="dot-button" @click="openDetails(item)">
-                  ...
-                </button>
+                <button type="button" class="dot-button" @click="openDetails(item)">...</button>
               </div>
             </td>
           </tr>
@@ -65,11 +74,38 @@
       </table>
     </div>
 
+    <div class="card">
+      <h2>Archived Students</h2>
+      <p class="muted">Archived students can be restored at any time.</p>
+      <p v-if="isLoadingArchived" class="muted">Loading archived students...</p>
+      <table v-else class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Student ID</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in filteredArchivedStudents" :key="item.id">
+            <td>{{ item.last_name }}, {{ item.first_name }}</td>
+            <td>{{ item.student_id }}</td>
+            <td>
+              <button type="button" class="link" :disabled="isSaving" @click="handleRestore(item)">
+                Restore
+              </button>
+            </td>
+          </tr>
+          <tr v-if="filteredArchivedStudents.length === 0">
+            <td colspan="3" class="muted">No archived students.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
     <div v-if="showDetails" class="modal-backdrop">
       <div class="modal">
-        <h2>
-          {{ selected?.first_name }} {{ selected?.last_name }}
-        </h2>
+        <h2>{{ selected?.first_name }} {{ selected?.last_name }}</h2>
         <p class="muted">Student ID: {{ selected?.student_id }}</p>
 
         <p v-if="detailsLoading" class="muted">Loading details...</p>
@@ -89,9 +125,7 @@
             <h3>Last checkout</h3>
             <p v-if="details?.lastCheckout">
               {{ formatTime(details.lastCheckout.action_time) }}
-              <span v-if="details.lastCheckout.gear_name">
-                — {{ details.lastCheckout.gear_name }}
-              </span>
+              <span v-if="details.lastCheckout.gear_name"> — {{ details.lastCheckout.gear_name }} </span>
             </p>
             <p v-else class="muted">No checkout history.</p>
           </div>
@@ -100,35 +134,32 @@
             <h3>Last return</h3>
             <p v-if="details?.lastReturn">
               {{ formatTime(details.lastReturn.action_time) }}
-              <span v-if="details.lastReturn.gear_name">
-                — {{ details.lastReturn.gear_name }}
-              </span>
+              <span v-if="details.lastReturn.gear_name"> — {{ details.lastReturn.gear_name }} </span>
             </p>
             <p v-else class="muted">No return history.</p>
           </div>
         </div>
 
         <div class="admin-actions">
-          <button type="button" class="link" @click="removeSelected">
-            Remove student
-          </button>
+          <button type="button" class="link" @click="removeSelected">Archive student</button>
           <button type="button" class="link" @click="closeDetails">Close</button>
         </div>
       </div>
     </div>
-
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { getAuthState } from "../../../store/authState";
 import {
   createStudent,
   deleteStudent,
+  fetchDeletedStudents,
   fetchStudentDetails,
   fetchStudents,
+  restoreStudent,
   type StudentDetails,
   type StudentItem,
 } from "../../../services/studentService";
@@ -138,7 +169,9 @@ import { exportRowsToCsv, exportRowsToPdf } from "../../../services/exportServic
 import { sanitizeInput } from "../../../utils/inputSanitizer";
 
 const students = ref<StudentItem[]>([]);
+const archivedStudents = ref<StudentItem[]>([]);
 const isLoading = ref(false);
+const isLoadingArchived = ref(false);
 const isSaving = ref(false);
 const error = ref("");
 const success = ref("");
@@ -152,7 +185,24 @@ const toastMessage = ref("");
 const firstName = ref("");
 const lastName = ref("");
 const studentId = ref("");
+const searchQuery = ref("");
 let toastTimer: number | null = null;
+
+const matchesSearch = (item: StudentItem, query: string) => {
+  if (!query) return true;
+  const haystack = `${item.first_name} ${item.last_name} ${item.student_id}`.toLowerCase();
+  return haystack.includes(query);
+};
+
+const filteredStudents = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  return students.value.filter((item) => matchesSearch(item, query));
+});
+
+const filteredArchivedStudents = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  return archivedStudents.value.filter((item) => matchesSearch(item, query));
+});
 
 const showToast = (title: string, message: string) => {
   toastTitle.value = title;
@@ -181,6 +231,17 @@ const showInputLimitToast = () => {
   );
 };
 
+const loadArchivedStudents = async () => {
+  isLoadingArchived.value = true;
+  try {
+    archivedStudents.value = await fetchDeletedStudents();
+  } catch {
+    archivedStudents.value = [];
+  } finally {
+    isLoadingArchived.value = false;
+  }
+};
+
 const loadStudents = async () => {
   isLoading.value = true;
   error.value = "";
@@ -191,13 +252,14 @@ const loadStudents = async () => {
   } finally {
     isLoading.value = false;
   }
+  await loadArchivedStudents();
 };
 
 const exportCsv = () => {
   exportRowsToCsv(
     `students-${new Date().toISOString().slice(0, 10)}.csv`,
     ["first_name", "last_name", "student_id"],
-    students.value
+    filteredStudents.value
   );
 };
 
@@ -206,10 +268,9 @@ const exportPdf = () => {
     `students-${new Date().toISOString().slice(0, 10)}.pdf`,
     "Student Export",
     ["first_name", "last_name", "student_id"],
-    students.value
+    filteredStudents.value
   );
 };
-
 
 const handleCreate = async () => {
   error.value = "";
@@ -222,8 +283,7 @@ const handleCreate = async () => {
   lastName.value = lastSanitized.value;
   studentId.value = studentSanitized.value;
 
-  const inputError =
-    firstSanitized.error || lastSanitized.error || studentSanitized.error;
+  const inputError = firstSanitized.error || lastSanitized.error || studentSanitized.error;
   if (inputError) {
     error.value = inputError;
     showInputLimitToast();
@@ -273,10 +333,7 @@ const handleCreate = async () => {
     const message = err instanceof Error ? err.message.toLowerCase() : "";
     if (message.includes("duplicate") || message.includes("already")) {
       showDuplicateStudentToast();
-    } else if (
-      message.includes("invalid request") ||
-      message.includes("characters or less")
-    ) {
+    } else if (message.includes("invalid request") || message.includes("characters or less")) {
       showInputLimitToast();
     }
   } finally {
@@ -284,7 +341,9 @@ const handleCreate = async () => {
   }
 };
 
-onMounted(loadStudents);
+onMounted(() => {
+  void loadStudents();
+});
 
 const openDetails = async (item: StudentItem) => {
   if (showDetails.value && selected.value?.id === item.id) {
@@ -322,9 +381,7 @@ const formatTime = (value: string) => {
 };
 
 const removeStudent = async (item: StudentItem) => {
-  const confirmed = window.confirm(
-    `Remove student "${item.first_name} ${item.last_name}"? This action cannot be undone.`
-  );
+  const confirmed = window.confirm(`Archive student "${item.first_name} ${item.last_name}"? You can restore them later.`);
   if (!confirmed) return;
   error.value = "";
   success.value = "";
@@ -333,15 +390,16 @@ const removeStudent = async (item: StudentItem) => {
     await enforceAdminRateLimit();
     await deleteStudent(item.id);
     await logAdminAction({
-      action_type: "student_remove",
+      action_type: "student_archive",
       entity_type: "student",
       entity_id: item.id,
       metadata: { student_id: item.student_id },
     });
     students.value = students.value.filter((row) => row.id !== item.id);
-    success.value = "Student removed.";
+    archivedStudents.value = [item, ...archivedStudents.value];
+    success.value = "Student archived.";
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Unable to remove student. Please sign out completeley and sign back in.";
+    error.value = err instanceof Error ? err.message : "Unable to archive student. Please sign out completeley and sign back in.";
   } finally {
     isSaving.value = false;
   }
@@ -354,4 +412,34 @@ const removeSelected = async () => {
     closeDetails();
   }
 };
+
+const handleRestore = async (item: StudentItem) => {
+  error.value = "";
+  success.value = "";
+  isSaving.value = true;
+  try {
+    await enforceAdminRateLimit();
+    const restored = await restoreStudent(item.id);
+    await logAdminAction({
+      action_type: "student_restore",
+      entity_type: "student",
+      entity_id: item.id,
+      metadata: { student_id: item.student_id },
+    });
+    archivedStudents.value = archivedStudents.value.filter((row) => row.id !== item.id);
+    students.value = [restored, ...students.value];
+    success.value = "Student restored.";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to restore student.";
+  } finally {
+    isSaving.value = false;
+  }
+};
+
+onUnmounted(() => {
+  if (toastTimer) {
+    window.clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+});
 </script>

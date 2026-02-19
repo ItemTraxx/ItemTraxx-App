@@ -157,6 +157,22 @@ serve(async (req) => {
       });
     }
 
+    if (action === "list_deleted") {
+      const { data, error } = await adminClient
+        .from("gear")
+        .select("id, tenant_id, name, barcode, serial_number, status, notes")
+        .eq("tenant_id", profile.tenant_id)
+        .not("deleted_at", "is", null)
+        .order("deleted_at", { ascending: false })
+        .limit(300);
+
+      if (error) {
+        return jsonResponse(400, { error: "Unable to load archived items." });
+      }
+
+      return jsonResponse(200, { data: data ?? [] });
+    }
+
     if (action === "create") {
       const { name, barcode, serial_number, status, notes } = payload as Record<string, unknown>;
       const normalizedName = typeof name === "string" ? name.trim() : "";
@@ -192,7 +208,7 @@ serve(async (req) => {
         .single();
 
       if (error || !data) {
-        return jsonResponse(400, { error: "Unable to create gear." });
+        return jsonResponse(400, { error: "Unable to create item." });
       }
 
       if (normalizedStatus !== "available" && normalizedStatus !== "checked_out") {
@@ -233,6 +249,7 @@ serve(async (req) => {
         .select("status")
         .eq("id", normalizedId)
         .eq("tenant_id", profile.tenant_id)
+        .is("deleted_at", null)
         .single();
 
       const { data, error } = await adminClient
@@ -245,11 +262,12 @@ serve(async (req) => {
         })
         .eq("id", normalizedId)
         .eq("tenant_id", profile.tenant_id)
+        .is("deleted_at", null)
         .select("id, tenant_id, name, barcode, serial_number, status, notes")
         .single();
 
       if (error || !data) {
-        return jsonResponse(400, { error: "Unable to update gear." });
+        return jsonResponse(400, { error: "Unable to update item." });
       }
 
       if (
@@ -271,21 +289,67 @@ serve(async (req) => {
 
     if (action === "delete") {
       const { id } = payload as Record<string, unknown>;
-      if (typeof id !== "string" || !id.trim()) {
+      const normalizedId = typeof id === "string" ? id.trim() : "";
+      if (!normalizedId) {
         return jsonResponse(400, { error: "Invalid request" });
+      }
+
+      const { data: activeGear } = await adminClient
+        .from("gear")
+        .select("id, status")
+        .eq("id", normalizedId)
+        .eq("tenant_id", profile.tenant_id)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+      if (!activeGear?.id) {
+        return jsonResponse(404, { error: "Item not found." });
+      }
+
+      if (activeGear.status === "checked_out") {
+        return jsonResponse(400, {
+          error: "Return this item before archiving it.",
+        });
       }
 
       const { error } = await adminClient
         .from("gear")
-        .delete()
-        .eq("id", id)
-        .eq("tenant_id", profile.tenant_id);
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: user.id,
+        })
+        .eq("id", normalizedId)
+        .eq("tenant_id", profile.tenant_id)
+        .is("deleted_at", null);
 
       if (error) {
-        return jsonResponse(400, { error: "Unable to remove gear." });
+        return jsonResponse(400, { error: "Unable to archive item." });
       }
 
       return jsonResponse(200, { success: true });
+    }
+
+    if (action === "restore") {
+      const { id } = payload as Record<string, unknown>;
+      const normalizedId = typeof id === "string" ? id.trim() : "";
+      if (!normalizedId) {
+        return jsonResponse(400, { error: "Invalid request" });
+      }
+
+      const { data, error } = await adminClient
+        .from("gear")
+        .update({ deleted_at: null, deleted_by: null })
+        .eq("id", normalizedId)
+        .eq("tenant_id", profile.tenant_id)
+        .not("deleted_at", "is", null)
+        .select("id, tenant_id, name, barcode, serial_number, status, notes")
+        .single();
+
+      if (error || !data) {
+        return jsonResponse(400, { error: "Unable to restore item." });
+      }
+
+      return jsonResponse(200, { data });
     }
 
     return jsonResponse(400, { error: "Invalid action" });

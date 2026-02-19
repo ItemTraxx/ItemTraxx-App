@@ -25,6 +25,9 @@ export type TenantNotificationPayload = {
   overdue_count: number;
   flagged_count: number;
   due_hours: number;
+  escalation_level_1_hours: number;
+  escalation_level_2_hours: number;
+  escalation_level_3_hours: number;
   maintenance: { enabled: boolean; message: string } | null;
   recent_status_events: StatusHistoryItem[];
 };
@@ -33,7 +36,8 @@ type AdminOpsAction =
   | "get_notifications"
   | "get_status_tracking"
   | "set_due_policy"
-  | "send_overdue_reminders";
+  | "send_overdue_reminders"
+  | "bulk_import_gear";
 
 const getAccessToken = async () => {
   const { data, error } = await supabase.auth.getSession();
@@ -70,16 +74,54 @@ export const fetchTenantNotifications = async () =>
 export const fetchStatusTracking = async () =>
   callAdminOps<{
     due_hours: number;
+    escalation_level_1_hours: number;
+    escalation_level_2_hours: number;
+    escalation_level_3_hours: number;
     flagged_items: StatusTrackedItem[];
     history: StatusHistoryItem[];
   }>("get_status_tracking");
 
-export const saveDuePolicy = async (checkoutDueHours: number) =>
-  callAdminOps<{ checkout_due_hours: number }>("set_due_policy", {
+export const saveDuePolicy = async (
+  checkoutDueHours: number,
+  escalationLevel1Hours: number,
+  escalationLevel2Hours: number,
+  escalationLevel3Hours: number
+) =>
+  callAdminOps<{
+    checkout_due_hours: number;
+    escalation_level_1_hours: number;
+    escalation_level_2_hours: number;
+    escalation_level_3_hours: number;
+  }>("set_due_policy", {
     checkout_due_hours: checkoutDueHours,
+    escalation_level_1_hours: escalationLevel1Hours,
+    escalation_level_2_hours: escalationLevel2Hours,
+    escalation_level_3_hours: escalationLevel3Hours,
   });
 
 export const sendOverdueReminders = async () =>
-  callAdminOps<{ sent: number; recipients: number; due_hours: number }>(
-    "send_overdue_reminders"
-  );
+  callAdminOps<{
+    sent: number;
+    recipients: number;
+    due_hours: number;
+    escalation_level_1_hours: number;
+    escalation_level_2_hours: number;
+    escalation_level_3_hours: number;
+    escalation_recipients?: { level_1: number; level_2: number; level_3: number };
+  }>("send_overdue_reminders");
+
+export const bulkImportGear = async (
+  rows: Array<{
+    name: string;
+    barcode: string;
+    serial_number?: string;
+    status?: string;
+    notes?: string;
+  }>
+) =>
+  callAdminOps<{
+    inserted: number;
+    skipped: number;
+    inserted_items: StatusTrackedItem[];
+    skipped_rows: Array<{ barcode: string; reason: string }>;
+  }>("bulk_import_gear", { rows });

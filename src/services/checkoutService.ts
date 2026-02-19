@@ -56,6 +56,7 @@ export const fetchGearByBarcode = async (barcode: string) => {
       .from("gear")
       .select("id, name, barcode, status")
       .eq("barcode", barcode)
+      .is("deleted_at", null)
       .single(),
     LOOKUP_TIMEOUT_MS,
     "Barcode lookup timed out."
@@ -74,6 +75,7 @@ export const fetchStudentByStudentId = async (studentId: string) => {
       .from("students")
       .select("id, first_name, last_name, student_id")
       .eq("student_id", studentId)
+      .is("deleted_at", null)
       .single(),
     LOOKUP_TIMEOUT_MS,
     "Student lookup timed out."
@@ -91,13 +93,14 @@ export const fetchCheckedOutGear = async (studentUuid: string) => {
     supabase
       .from("gear")
       .select("id, name, barcode, status")
-      .eq("checked_out_by", studentUuid),
+      .eq("checked_out_by", studentUuid)
+      .is("deleted_at", null),
     LOOKUP_TIMEOUT_MS,
-    "Checked out gear lookup timed out."
+    "Checked out items lookup timed out."
   );
 
   if (error) {
-    throw new Error("Unable to load gear.");
+    throw new Error("Unable to load items.");
   }
 
   return (data ?? []) as GearSummary[];

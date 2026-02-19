@@ -286,6 +286,12 @@ textarea {
   margin-top: 1.1rem;
 }
 
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem 1rem;
+}
+
 .form-help-row {
   display: flex;
   justify-content: space-between;

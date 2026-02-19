@@ -8,11 +8,11 @@
       <RouterLink class="button-link" to="/super-admin/broadcasts">Broadcasts</RouterLink>
     </div>
 
-    <h1>All Gear</h1>
-    <p>Cross-tenant gear management.</p>
+    <h1>All Items</h1>
+    <p>Cross-tenant item management.</p>
 
     <div class="card">
-      <h2>Create Gear</h2>
+      <h2>Create Item</h2>
       <form class="form" @submit.prevent="handleCreate">
         <label>Tenant<select v-model="formTenantId"><option value="">Select tenant</option><option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.name }}</option></select></label>
         <label>Name<input v-model="formName" type="text" /></label>
@@ -25,22 +25,33 @@
     </div>
 
     <div class="card">
-      <h2>Gear List</h2>
+      <h2>Item List</h2>
       <div class="input-row">
         <select v-model="tenantFilter" @change="loadGear"><option value="all">all tenants</option><option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.name }}</option></select>
+        <select v-model="statusFilter">
+          <option value="all">all statuses</option>
+          <option value="available">available</option>
+          <option value="checked_out">checked_out</option>
+          <option value="damaged">damaged</option>
+          <option value="lost">lost</option>
+          <option value="in_repair">in_repair</option>
+          <option value="retired">retired</option>
+          <option value="in_studio_only">in_studio_only</option>
+        </select>
         <input v-model="search" type="text" placeholder="Search" />
         <button type="button" @click="loadGear">Search</button>
       </div>
+      <p class="muted">Showing {{ filteredGear.length }} of {{ gear.length }} items.</p>
       <div class="form-actions">
         <button type="button" @click="exportCsv">Export CSV</button>
         <button type="button" @click="exportPdf">Export PDF</button>
       </div>
-      <p v-if="isLoading" class="muted">Loading gear...</p>
+      <p v-if="isLoading" class="muted">Loading items...</p>
       <p v-else-if="error" class="error">{{ error }}</p>
       <table v-else class="table">
         <thead><tr><th>Name</th><th>Tenant</th><th>Barcode</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
-          <tr v-for="item in gear" :key="item.id">
+          <tr v-for="item in filteredGear" :key="item.id">
             <td>{{ item.name }}</td>
             <td>{{ tenantNameById.get(item.tenant_id) || item.tenant_id }}</td>
             <td>{{ item.barcode }}</td>
@@ -55,7 +66,7 @@
     </div>
 
     <div v-if="editItem" class="card">
-      <h2>Edit Gear</h2>
+      <h2>Edit Item</h2>
       <form class="form" @submit.prevent="saveEdit">
         <label>Name<input v-model="editName" type="text" /></label>
         <label>Barcode<input v-model="editBarcode" type="text" /></label>
@@ -82,6 +93,7 @@ import { exportRowsToCsv, exportRowsToPdf } from "../../services/exportService";
 const tenants = ref<SuperTenant[]>([]);
 const gear = ref<SuperGearItem[]>([]);
 const tenantFilter = ref("all");
+const statusFilter = ref("all");
 const search = ref("");
 const isLoading = ref(false);
 const isSaving = ref(false);
@@ -107,6 +119,10 @@ const stepUpAction = ref<null | { type: "delete"; item: SuperGearItem } | { type
 let toastTimer: number | null = null;
 
 const tenantNameById = computed(() => new Map(tenants.value.map((t) => [t.id, t.name])));
+const filteredGear = computed(() => {
+  if (statusFilter.value === "all") return gear.value;
+  return gear.value.filter((item) => item.status === statusFilter.value);
+});
 
 const showToast = (title: string, message: string) => {
   toastTitle.value = title;
@@ -129,7 +145,7 @@ const loadGear = async () => {
   try {
     gear.value = await listSuperGear(tenantFilter.value, search.value.trim());
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Unable to load gear.";
+    error.value = err instanceof Error ? err.message : "Unable to load items.";
   } finally {
     isLoading.value = false;
   }
@@ -139,7 +155,7 @@ const exportCsv = () => {
   exportRowsToCsv(
     `super-gear-${new Date().toISOString().slice(0, 10)}.csv`,
     ["tenant", "name", "barcode", "serial_number", "status", "notes"],
-    gear.value.map((item) => ({
+    filteredGear.value.map((item) => ({
       tenant: tenantNameById.value.get(item.tenant_id) || item.tenant_id,
       name: item.name,
       barcode: item.barcode,
@@ -153,9 +169,9 @@ const exportCsv = () => {
 const exportPdf = () => {
   exportRowsToPdf(
     `super-gear-${new Date().toISOString().slice(0, 10)}.pdf`,
-    "Super Gear Export",
+    "Super Item Export",
     ["tenant", "name", "barcode", "serial_number", "status", "notes"],
-    gear.value.map((item) => ({
+    filteredGear.value.map((item) => ({
       tenant: tenantNameById.value.get(item.tenant_id) || item.tenant_id,
       name: item.name,
       barcode: item.barcode,
@@ -186,9 +202,9 @@ const handleCreate = async () => {
     formBarcode.value = "";
     formSerial.value = "";
     formNotes.value = "";
-    showToast("Created", "Gear item created.");
+    showToast("Created", "Item created.");
   } catch (err) {
-    showToast("Create failed", err instanceof Error ? err.message : "Unable to create gear.");
+    showToast("Create failed", err instanceof Error ? err.message : "Unable to create item.");
   } finally {
     isSaving.value = false;
   }
@@ -233,16 +249,16 @@ const saveEdit = async () => {
     });
     gear.value = gear.value.map((item) => (item.id === updated.id ? updated : item));
     cancelEdit();
-    showToast("Saved", "Gear updated.");
+    showToast("Saved", "Item updated.");
   } catch (err) {
-    showToast("Update failed", err instanceof Error ? err.message : "Unable to update gear.");
+    showToast("Update failed", err instanceof Error ? err.message : "Unable to update item.");
   } finally {
     isSaving.value = false;
   }
 };
 
 const requestDelete = (item: SuperGearItem) => {
-  stepUpTitle.value = "Delete Gear";
+  stepUpTitle.value = "Delete Item";
   stepUpMessage.value = `Type CONFIRM and enter super password to delete ${item.name}.`;
   stepUpConfirm.value = "Delete";
   stepUpAction.value = { type: "delete", item };
@@ -265,7 +281,7 @@ const confirmStepUp = async (payload: { superPassword: string; confirmPhrase: st
         confirm_phrase: payload.confirmPhrase,
       });
       gear.value = gear.value.filter((item) => item.id !== stepUpAction.value!.item.id);
-      showToast("Deleted", "Gear deleted.");
+      showToast("Deleted", "Item deleted.");
     } else {
       const updated = await updateSuperGear({
         id: stepUpAction.value.item.id,
@@ -278,7 +294,7 @@ const confirmStepUp = async (payload: { superPassword: string; confirmPhrase: st
       });
       gear.value = gear.value.map((item) => (item.id === updated.id ? updated : item));
       cancelEdit();
-      showToast("Saved", "Gear updated.");
+      showToast("Saved", "Item updated.");
     }
     closeStepUp();
   } catch (err) {

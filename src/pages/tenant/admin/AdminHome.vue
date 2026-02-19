@@ -17,7 +17,7 @@
         <p>Manage students and view checkout history.</p>
       </RouterLink>
       <RouterLink class="admin-card" to="/tenant/admin/logs">
-        <h2>Gear Logs</h2>
+        <h2>Item Logs</h2>
         <p>View checkout and return activity.</p>
       </RouterLink>
       <RouterLink class="admin-card" to="/tenant/admin/return">
@@ -35,6 +35,10 @@
       <RouterLink class="admin-card" to="/tenant/admin/item-status">
         <h2>Item Status Tracking</h2>
         <p>Track lost, damaged, repair statuses and overdue reminder settings.</p>
+      </RouterLink>
+      <RouterLink class="admin-card" to="/tenant/admin/gear-import">
+        <h2>Bulk Item Import</h2>
+        <p>Import items in bulk from CSV with preview and validation.</p>
       </RouterLink>
       <RouterLink class="admin-card" to="/tenant/admin/barcodes">
         <h2>Bulk Barcode Generator</h2>

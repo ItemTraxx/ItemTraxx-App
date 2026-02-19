@@ -24,10 +24,20 @@ const pickRelation = <T>(value: MaybeRelation<T>): T | null => {
   return value ?? null;
 };
 
+const getAccessToken = async () => {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const session = sessionData.session ?? null;
+  if (!session?.access_token) {
+    throw new Error("Unauthorized.");
+  }
+  return session.access_token;
+};
+
 export const fetchStudents = async () => {
   const { data, error } = await supabase
     .from("students")
     .select("id, tenant_id, first_name, last_name, student_id")
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -37,23 +47,41 @@ export const fetchStudents = async () => {
   return (data ?? []) as StudentItem[];
 };
 
+export const fetchDeletedStudents = async () => {
+  const accessToken = await getAccessToken();
+
+  const result = await invokeEdgeFunction<{ data: StudentItem[] }>(
+    "admin-student-mutate",
+    {
+      method: "POST",
+      accessToken,
+      body: {
+        action: "list_deleted",
+        payload: {},
+      },
+    }
+  );
+
+  if (!result.ok) {
+    throw new Error(result.error || "Unable to load archived students.");
+  }
+
+  return (result.data?.data ?? []) as StudentItem[];
+};
+
 export const createStudent = async (payload: {
   tenant_id: string;
   first_name: string;
   last_name: string;
   student_id: string;
 }) => {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const session = sessionData.session ?? null;
-  if (!session?.access_token) {
-    throw new Error("Unauthorized.");
-  }
+  const accessToken = await getAccessToken();
 
   const result = await invokeEdgeFunction<{ data: StudentItem }>(
     "admin-student-mutate",
     {
       method: "POST",
-      accessToken: session.access_token,
+      accessToken,
       body: {
         action: "create",
         payload: {
@@ -74,15 +102,11 @@ export const createStudent = async (payload: {
 };
 
 export const deleteStudent = async (id: string) => {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const session = sessionData.session ?? null;
-  if (!session?.access_token) {
-    throw new Error("Unauthorized.");
-  }
+  const accessToken = await getAccessToken();
 
   const result = await invokeEdgeFunction("admin-student-mutate", {
     method: "POST",
-    accessToken: session.access_token,
+    accessToken,
     body: {
       action: "delete",
       payload: { id },
@@ -94,10 +118,33 @@ export const deleteStudent = async (id: string) => {
   }
 };
 
+export const restoreStudent = async (id: string) => {
+  const accessToken = await getAccessToken();
+
+  const result = await invokeEdgeFunction<{ data: StudentItem }>(
+    "admin-student-mutate",
+    {
+      method: "POST",
+      accessToken,
+      body: {
+        action: "restore",
+        payload: { id },
+      },
+    }
+  );
+
+  if (!result.ok) {
+    throw new Error(result.error || "Unable to restore student.");
+  }
+
+  return result.data?.data as StudentItem;
+};
+
 export const fetchStudentDetails = async (studentUuid: string) => {
   const { data: checkedOutGear, error: gearError } = await supabase
     .from("gear")
     .select("id, name, barcode")
+    .is("deleted_at", null)
     .eq("checked_out_by", studentUuid);
 
   if (gearError) {

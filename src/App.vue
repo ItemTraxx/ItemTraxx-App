@@ -136,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Analytics } from "@vercel/analytics/vue";
 import { SpeedInsights } from "@vercel/speed-insights/vue";
@@ -178,6 +178,14 @@ const latestVersion = ref<string | null>(null);
 const statusFunctionName = import.meta.env.VITE_STATUS_FUNCTION || "system-status";
 let statusTimer: number | null = null;
 let versionTimer: number | null = null;
+let adminIdleTimer: number | null = null;
+const isIdleLogoutRunning = ref(false);
+
+const ADMIN_IDLE_TIMEOUT_MINUTES = Number(import.meta.env.VITE_ADMIN_IDLE_TIMEOUT_MINUTES || 20);
+const ADMIN_IDLE_TIMEOUT_MS =
+  Number.isFinite(ADMIN_IDLE_TIMEOUT_MINUTES) && ADMIN_IDLE_TIMEOUT_MINUTES > 0
+    ? ADMIN_IDLE_TIMEOUT_MINUTES * 60 * 1000
+    : 20 * 60 * 1000;
 
 const GITHUB_HEAD_COMMIT_API =
   "https://api.github.com/repos/ItemTraxxCo/ItemTraxx-App/commits/main";
@@ -186,6 +194,10 @@ const themeLabel = computed(() =>
   theme.value === "dark" ? "Light Mode" : "Dark Mode"
 );
 const showTopMenu = computed(() => route.name !== "public-home");
+const isTenantAdminArea = computed(() => {
+  if (route.path === "/tenant/admin-login") return false;
+  return route.path.startsWith("/tenant/admin");
+});
 const showNotificationBell = computed(() => {
   if (!auth.isAuthenticated) return false;
   if (auth.role !== "tenant_user" && auth.role !== "tenant_admin") return false;
@@ -279,6 +291,49 @@ const logoutTenant = async () => {
 
 const reloadApp = () => {
   window.location.reload();
+};
+
+const clearAdminIdleTimer = () => {
+  if (adminIdleTimer) {
+    window.clearTimeout(adminIdleTimer);
+    adminIdleTimer = null;
+  }
+};
+
+const runIdleLogout = async () => {
+  if (isIdleLogoutRunning.value) return;
+  if (!auth.isAuthenticated || auth.role !== "tenant_admin" || !isTenantAdminArea.value) {
+    return;
+  }
+  isIdleLogoutRunning.value = true;
+  try {
+    await signOut();
+    await router.replace("/tenant/admin-login");
+  } finally {
+    isIdleLogoutRunning.value = false;
+  }
+};
+
+const resetAdminIdleTimer = () => {
+  clearAdminIdleTimer();
+  if (!auth.isAuthenticated || auth.role !== "tenant_admin" || !isTenantAdminArea.value) {
+    return;
+  }
+  adminIdleTimer = window.setTimeout(() => {
+    void runIdleLogout();
+  }, ADMIN_IDLE_TIMEOUT_MS);
+};
+
+const adminActivityEvents: Array<keyof WindowEventMap> = [
+  "mousemove",
+  "mousedown",
+  "keydown",
+  "touchstart",
+  "scroll",
+];
+
+const handleAdminActivity = () => {
+  resetAdminIdleTimer();
 };
 
 const dismissBroadcast = () => {
@@ -453,9 +508,24 @@ onMounted(() => {
   versionTimer = window.setInterval(() => {
     void refreshVersionStatus();
   }, 120_000);
+  for (const eventName of adminActivityEvents) {
+    window.addEventListener(eventName, handleAdminActivity, { passive: true });
+  }
+  resetAdminIdleTimer();
 });
 
+watch(
+  () => [route.path, auth.isAuthenticated, auth.role] as const,
+  () => {
+    resetAdminIdleTimer();
+  }
+);
+
 onUnmounted(() => {
+  clearAdminIdleTimer();
+  for (const eventName of adminActivityEvents) {
+    window.removeEventListener(eventName, handleAdminActivity);
+  }
   if (statusTimer) {
     window.clearInterval(statusTimer);
     statusTimer = null;
