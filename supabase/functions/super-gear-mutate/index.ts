@@ -167,7 +167,7 @@ serve(async (req) => {
 
       const { data, error } = await query;
       if (error) {
-        return jsonResponse(400, { error: "Unable to load gear." });
+        return jsonResponse(400, { error: "Unable to load items." });
       }
       return jsonResponse(200, { data: data ?? [] });
     }
@@ -199,7 +199,7 @@ serve(async (req) => {
         .single();
 
       if (error || !data) {
-        return jsonResponse(400, { error: "Unable to create gear." });
+        return jsonResponse(400, { error: "Unable to create item." });
       }
       return jsonResponse(200, { data });
     }
@@ -250,7 +250,7 @@ serve(async (req) => {
         .single();
 
       if (error || !data) {
-        return jsonResponse(400, { error: "Unable to update gear." });
+        return jsonResponse(400, { error: "Unable to update item." });
       }
       return jsonResponse(200, { data });
     }
@@ -263,7 +263,7 @@ serve(async (req) => {
 
       if (!id || !password || phrase.trim() !== "CONFIRM") {
         return jsonResponse(400, {
-          error: "Super password and confirmation are required to delete gear.",
+          error: "Super password and confirmation are required to delete item.",
         });
       }
 
@@ -279,7 +279,7 @@ serve(async (req) => {
 
       const { error } = await adminClient.from("gear").delete().eq("id", id);
       if (error) {
-        return jsonResponse(400, { error: "Unable to delete gear." });
+        return jsonResponse(400, { error: "Unable to delete item." });
       }
       return jsonResponse(200, { data: { success: true } });
     }

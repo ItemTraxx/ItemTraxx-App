@@ -2,17 +2,18 @@
   <div class="page">
     <div class="page-nav-left">
       <RouterLink class="button-link" to="/tenant/admin">Return to admin panel</RouterLink>
+      <RouterLink class="button-link" to="/tenant/admin/gear-import">Bulk item import wizard</RouterLink>
     </div>
-    <h1>Gear Management</h1>
-    <p>Add and manage gear.</p>
-    <p class="muted">Export gear data to CSV or PDF from the list section.</p>
+    <h1>Item Management</h1>
+    <p>Add and manage items.</p>
+    <p class="muted">Export item data to CSV or PDF from the list section.</p>
 
     <div class="card">
-      <h2>Add Gear</h2>
+      <h2>Add Item</h2>
       <form class="form" @submit.prevent="handleCreate">
         <label>
           Name
-          <input v-model="name" type="text" placeholder="Gear name" />
+          <input v-model="name" type="text" placeholder="Item name" />
         </label>
         <label>
           Barcode
@@ -35,7 +36,7 @@
             <span>{{ notes.length }}/500</span>
           </div>
         </label>
-        <button type="submit" class="button-primary" :disabled="isSaving">Add gear</button>
+        <button type="submit" class="button-primary" :disabled="isSaving">Add item</button>
       </form>
       <p v-if="error" class="error">{{ error }}</p>
       <p v-if="success" class="success">{{ success }}</p>
@@ -46,12 +47,32 @@
     </div>
 
     <div class="card">
-      <h2>Gear List</h2>
+      <h2>Item List</h2>
+      <div class="form-grid-2">
+        <label>
+          Search items
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search by name, barcode, serial, status, or notes"
+          />
+        </label>
+        <label>
+          Filter status
+          <select v-model="statusFilter">
+            <option value="all">all statuses</option>
+            <option v-for="option in statusOptions" :key="option" :value="option">
+              {{ option }}
+            </option>
+          </select>
+        </label>
+      </div>
       <div class="form-actions">
         <button type="button" @click="exportCsv">Export CSV</button>
         <button type="button" @click="exportPdf">Export PDF</button>
       </div>
-      <p v-if="isLoading" class="muted">Loading gear...</p>
+      <p class="muted">Showing {{ filteredGear.length }} of {{ gear.length }} items.</p>
+      <p v-if="isLoading" class="muted">Loading items...</p>
       <table v-else class="table">
         <thead>
           <tr>
@@ -65,24 +86,14 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in gear" :key="item.id">
+          <tr v-for="item in filteredGear" :key="item.id">
             <td>
               <span v-if="editingId !== item.id">{{ item.name }}</span>
-              <input
-                v-else
-                v-model="editName"
-                type="text"
-                placeholder="Name"
-              />
+              <input v-else v-model="editName" type="text" placeholder="Name" />
             </td>
             <td>
               <span v-if="editingId !== item.id">{{ item.barcode }}</span>
-              <input
-                v-else
-                v-model="editBarcode"
-                type="text"
-                placeholder="Barcode"
-              />
+              <input v-else v-model="editBarcode" type="text" placeholder="Barcode" />
             </td>
             <td>
               <span
@@ -131,19 +142,9 @@
                   Edit
                 </button>
                 <div v-else class="admin-actions">
-                  <button type="button" class="link" @click="saveEdit(item.id)">
-                    Save
-                  </button>
-                  <button type="button" class="link" @click="cancelEdit">
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    class="link"
-                    @click="removeGear(item)"
-                  >
-                    Remove
-                  </button>
+                  <button type="button" class="link" @click="saveEdit(item.id)">Save</button>
+                  <button type="button" class="link" @click="cancelEdit">Cancel</button>
+                  <button type="button" class="link" @click="removeGear(item)">Archive</button>
                 </div>
               </div>
             </td>
@@ -152,21 +153,61 @@
       </table>
     </div>
 
+    <div class="card">
+      <h2>Archived Items</h2>
+      <p class="muted">Archived items can be restored when needed.</p>
+      <p v-if="isLoadingArchived" class="muted">Loading archived items...</p>
+      <table v-else class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Barcode</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in archivedGear" :key="item.id">
+            <td>{{ item.name }}</td>
+            <td>{{ item.barcode }}</td>
+            <td>{{ item.status }}</td>
+            <td>
+              <button type="button" class="link" :disabled="isSaving" @click="handleRestore(item)">
+                Restore
+              </button>
+            </td>
+          </tr>
+          <tr v-if="archivedGear.length === 0">
+            <td colspan="4" class="muted">No archived items.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { getAuthState } from "../../../store/authState";
 import { logAdminAction } from "../../../services/auditLogService";
 import { enforceAdminRateLimit } from "../../../services/rateLimitService";
-import { createGear, deleteGear, fetchGear, updateGear, type GearItem } from "../../../services/gearService";
+import {
+  createGear,
+  deleteGear,
+  fetchDeletedGear,
+  fetchGear,
+  restoreGear,
+  updateGear,
+  type GearItem,
+} from "../../../services/gearService";
 import { exportRowsToCsv, exportRowsToPdf } from "../../../services/exportService";
 import { sanitizeInput } from "../../../utils/inputSanitizer";
 
 const gear = ref<GearItem[]>([]);
+const archivedGear = ref<GearItem[]>([]);
 const isLoading = ref(false);
+const isLoadingArchived = ref(false);
 const isSaving = ref(false);
 const error = ref("");
 const success = ref("");
@@ -177,6 +218,8 @@ const name = ref("");
 const barcode = ref("");
 const serialNumber = ref("");
 const notes = ref("");
+const searchQuery = ref("");
+const statusFilter = ref("all");
 const statusOptions = [
   "available",
   "checked_out",
@@ -193,6 +236,29 @@ const editBarcode = ref("");
 const editStatus = ref(statusOptions[0] ?? "available");
 const editNotes = ref("");
 let toastTimer: number | null = null;
+
+const filteredGear = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  const status = statusFilter.value;
+  return gear.value.filter((item) => {
+    if (status !== "all" && item.status !== status) {
+      return false;
+    }
+    if (!query) {
+      return true;
+    }
+    const haystack = [
+      item.name,
+      item.barcode,
+      item.serial_number ?? "",
+      item.status,
+      item.notes ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+});
 
 const showToast = (title: string, message: string) => {
   toastTitle.value = title;
@@ -221,32 +287,44 @@ const showInputLimitToast = () => {
   );
 };
 
+const loadArchivedGear = async () => {
+  isLoadingArchived.value = true;
+  try {
+    archivedGear.value = await fetchDeletedGear();
+  } catch {
+    archivedGear.value = [];
+  } finally {
+    isLoadingArchived.value = false;
+  }
+};
+
 const loadGear = async () => {
   isLoading.value = true;
   error.value = "";
   try {
     gear.value = await fetchGear();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Unable to load gear. Please sign out completeley and sign back in.";
+    error.value = err instanceof Error ? err.message : "Unable to load items. Please sign out completeley and sign back in.";
   } finally {
     isLoading.value = false;
   }
+  await loadArchivedGear();
 };
 
 const exportCsv = () => {
   exportRowsToCsv(
     `gear-${new Date().toISOString().slice(0, 10)}.csv`,
     ["name", "barcode", "serial_number", "status", "notes"],
-    gear.value
+    filteredGear.value
   );
 };
 
 const exportPdf = () => {
   exportRowsToPdf(
     `gear-${new Date().toISOString().slice(0, 10)}.pdf`,
-    "Gear Export",
+    "Item Export",
     ["name", "barcode", "serial_number", "status", "notes"],
-    gear.value
+    filteredGear.value
   );
 };
 
@@ -317,14 +395,11 @@ const handleCreate = async () => {
     notes.value = "";
     success.value = "Item added.";
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Unable to create gear.";
+    error.value = err instanceof Error ? err.message : "Unable to create item.";
     const message = err instanceof Error ? err.message.toLowerCase() : "";
     if (message.includes("duplicate") || message.includes("already")) {
       showDuplicateBarcodeToast();
-    } else if (
-      message.includes("invalid request") ||
-      message.includes("characters or less")
-    ) {
+    } else if (message.includes("invalid request") || message.includes("characters or less")) {
       showInputLimitToast();
     }
   } finally {
@@ -359,8 +434,7 @@ const saveEdit = async (id: string) => {
   editBarcode.value = barcodeSanitized.value;
   editNotes.value = notesSanitized.value;
 
-  const inputError =
-    nameSanitized.error || barcodeSanitized.error || notesSanitized.error;
+  const inputError = nameSanitized.error || barcodeSanitized.error || notesSanitized.error;
 
   if (inputError) {
     error.value = inputError;
@@ -393,10 +467,7 @@ const saveEdit = async (id: string) => {
   } catch (err) {
     error.value = err instanceof Error ? err.message : "Unable to update item.";
     const message = err instanceof Error ? err.message.toLowerCase() : "";
-    if (
-      message.includes("invalid request") ||
-      message.includes("characters or less")
-    ) {
+    if (message.includes("invalid request") || message.includes("characters or less")) {
       showInputLimitToast();
     }
   } finally {
@@ -405,9 +476,7 @@ const saveEdit = async (id: string) => {
 };
 
 const removeGear = async (item: GearItem) => {
-  const confirmed = window.confirm(
-    `Remove item "${item.name}"? This action cannot be undone.`
-  );
+  const confirmed = window.confirm(`Archive item "${item.name}"? You can restore it later.`);
   if (!confirmed) return;
   error.value = "";
   success.value = "";
@@ -416,19 +485,52 @@ const removeGear = async (item: GearItem) => {
     await enforceAdminRateLimit();
     await deleteGear(item.id);
     await logAdminAction({
-      action_type: "gear_remove",
+      action_type: "gear_archive",
       entity_type: "gear",
       entity_id: item.id,
       metadata: { name: item.name, barcode: item.barcode },
     });
     gear.value = gear.value.filter((row) => row.id !== item.id);
-    success.value = "Item removed.";
+    archivedGear.value = [item, ...archivedGear.value];
+    success.value = "Item archived.";
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Unable to remove item. Please try again.";
+    error.value = err instanceof Error ? err.message : "Unable to archive item. Please try again.";
   } finally {
     isSaving.value = false;
   }
 };
 
-onMounted(loadGear);
+const handleRestore = async (item: GearItem) => {
+  error.value = "";
+  success.value = "";
+  isSaving.value = true;
+  try {
+    await enforceAdminRateLimit();
+    const restored = await restoreGear(item.id);
+    await logAdminAction({
+      action_type: "gear_restore",
+      entity_type: "gear",
+      entity_id: item.id,
+      metadata: { name: item.name, barcode: item.barcode },
+    });
+    archivedGear.value = archivedGear.value.filter((row) => row.id !== item.id);
+    gear.value = [restored, ...gear.value];
+    success.value = "Item restored.";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to restore item.";
+  } finally {
+    isSaving.value = false;
+  }
+};
+
+onMounted(() => {
+  void loadGear();
+});
+
+onUnmounted(() => {
+  if (toastTimer) {
+    window.clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+});
 </script>

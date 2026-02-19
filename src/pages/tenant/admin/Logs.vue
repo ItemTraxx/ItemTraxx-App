@@ -8,14 +8,33 @@
     <p class="muted">Export filtered logs to CSV or PDF.</p>
 
     <div class="card">
-      <label>
-        Search logs
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Search by action, student, item name, or barcode"
-        />
-      </label>
+      <div class="form-grid-2">
+        <label>
+          Search logs
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search by action, student, item name, or barcode"
+          />
+        </label>
+        <label>
+          Action
+          <select v-model="actionFilter">
+            <option value="all">all actions</option>
+            <option value="checkout">checkout</option>
+            <option value="return">return</option>
+            <option value="admin_return">admin_return</option>
+          </select>
+        </label>
+        <label>
+          From
+          <input v-model="dateFrom" type="date" />
+        </label>
+        <label>
+          To
+          <input v-model="dateTo" type="date" />
+        </label>
+      </div>
       <div class="form-actions">
         <button type="button" @click="exportCsv">Export CSV</button>
         <button type="button" @click="exportPdf">Export PDF</button>
@@ -69,6 +88,9 @@ const logs = ref<GearLog[]>([]);
 const isLoading = ref(false);
 const error = ref("");
 const searchQuery = ref("");
+const actionFilter = ref("all");
+const dateFrom = ref("");
+const dateTo = ref("");
 
 const filteredLogs = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
@@ -77,6 +99,24 @@ const filteredLogs = computed(() => {
   }
 
   return logs.value.filter((log) => {
+    if (actionFilter.value !== "all" && log.action_type !== actionFilter.value) {
+      return false;
+    }
+
+    const timestamp = Date.parse(log.action_time);
+    if (dateFrom.value) {
+      const fromTs = Date.parse(`${dateFrom.value}T00:00:00`);
+      if (!Number.isNaN(timestamp) && !Number.isNaN(fromTs) && timestamp < fromTs) {
+        return false;
+      }
+    }
+    if (dateTo.value) {
+      const toTs = Date.parse(`${dateTo.value}T23:59:59`);
+      if (!Number.isNaN(timestamp) && !Number.isNaN(toTs) && timestamp > toTs) {
+        return false;
+      }
+    }
+
     const action = (log.action_type || "").toLowerCase();
     const student = log.student
       ? `${log.student.first_name} ${log.student.last_name} ${log.student.student_id}`.toLowerCase()
@@ -111,7 +151,7 @@ const exportRows = computed(() =>
 
 const exportCsv = () => {
   exportRowsToCsv(
-    `gear-logs-${new Date().toISOString().slice(0, 10)}.csv`,
+    `item-logs-${new Date().toISOString().slice(0, 10)}.csv`,
     ["action_time", "action_type", "student", "item"],
     exportRows.value
   );
@@ -119,8 +159,8 @@ const exportCsv = () => {
 
 const exportPdf = () => {
   exportRowsToPdf(
-    `gear-logs-${new Date().toISOString().slice(0, 10)}.pdf`,
-    "Gear Logs Export",
+    `item-logs-${new Date().toISOString().slice(0, 10)}.pdf`,
+    "Item Logs Export",
     ["action_time", "action_type", "student", "item"],
     exportRows.value
   );

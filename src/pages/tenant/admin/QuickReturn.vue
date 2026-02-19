@@ -8,7 +8,7 @@
 
     <div class="card">
       <label>
-        Gear barcode
+        Item barcode
         <div class="input-row">
           <input
             ref="barcodeField"

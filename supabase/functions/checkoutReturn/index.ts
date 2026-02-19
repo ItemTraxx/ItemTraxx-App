@@ -174,6 +174,7 @@ serve(async (req) => {
         .select("id, tenant_id")
         .eq("student_id", student_id.trim())
         .eq("tenant_id", callerProfile.tenant_id)
+        .is("deleted_at", null)
         .single();
 
       if (studentError || !studentData?.id || !studentData.tenant_id) {
@@ -195,6 +196,7 @@ serve(async (req) => {
         .select("id, tenant_id, checked_out_by")
         .eq("barcode", barcode)
         .eq("tenant_id", callerProfile.tenant_id)
+        .is("deleted_at", null)
         .single();
 
       if (!gear) continue;

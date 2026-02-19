@@ -32,17 +32,46 @@ const pickRelation = <T>(value: MaybeRelation<T>): T | null => {
   return value ?? null;
 };
 
+const getAccessToken = async () => {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const session = sessionData.session ?? null;
+  if (!session?.access_token) {
+    throw new Error("Unauthorized.");
+  }
+  return session.access_token;
+};
+
 export const fetchGear = async () => {
   const { data, error } = await supabase
     .from("gear")
     .select("id, tenant_id, name, barcode, serial_number, status, notes")
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
   if (error) {
-    throw new Error("Unable to load gear.");
+    throw new Error("Unable to load items.");
   }
 
   return (data ?? []) as GearItem[];
+};
+
+export const fetchDeletedGear = async () => {
+  const accessToken = await getAccessToken();
+
+  const result = await invokeEdgeFunction<{ data: GearItem[] }>("admin-gear-mutate", {
+    method: "POST",
+    accessToken,
+    body: {
+      action: "list_deleted",
+      payload: {},
+    },
+  });
+
+  if (!result.ok) {
+    throw new Error(result.error || "Unable to load archived items.");
+  }
+
+  return (result.data?.data ?? []) as GearItem[];
 };
 
 export const createGear = async (payload: {
@@ -53,15 +82,11 @@ export const createGear = async (payload: {
   status: string;
   notes?: string;
 }) => {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const session = sessionData.session ?? null;
-  if (!session?.access_token) {
-    throw new Error("Unauthorized.");
-  }
+  const accessToken = await getAccessToken();
 
   const result = await invokeEdgeFunction<{ data: GearItem }>("admin-gear-mutate", {
     method: "POST",
-    accessToken: session.access_token,
+    accessToken,
     body: {
       action: "create",
       payload: {
@@ -76,7 +101,7 @@ export const createGear = async (payload: {
   });
 
   if (!result.ok) {
-    throw new Error(result.error || "Unable to create gear.");
+    throw new Error(result.error || "Unable to create item.");
   }
 
   return result.data?.data as GearItem;
@@ -89,15 +114,11 @@ export const updateGear = async (payload: {
   status: string;
   notes?: string;
 }) => {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const session = sessionData.session ?? null;
-  if (!session?.access_token) {
-    throw new Error("Unauthorized.");
-  }
+  const accessToken = await getAccessToken();
 
   const result = await invokeEdgeFunction<{ data: GearItem }>("admin-gear-mutate", {
     method: "POST",
-    accessToken: session.access_token,
+    accessToken,
     body: {
       action: "update",
       payload: {
@@ -111,22 +132,18 @@ export const updateGear = async (payload: {
   });
 
   if (!result.ok) {
-    throw new Error(result.error || "Unable to update gear.");
+    throw new Error(result.error || "Unable to update item.");
   }
 
   return result.data?.data as GearItem;
 };
 
 export const deleteGear = async (id: string) => {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const session = sessionData.session ?? null;
-  if (!session?.access_token) {
-    throw new Error("Unauthorized.");
-  }
+  const accessToken = await getAccessToken();
 
   const result = await invokeEdgeFunction("admin-gear-mutate", {
     method: "POST",
-    accessToken: session.access_token,
+    accessToken,
     body: {
       action: "delete",
       payload: { id },
@@ -134,8 +151,27 @@ export const deleteGear = async (id: string) => {
   });
 
   if (!result.ok) {
-    throw new Error(result.error || "Unable to remove gear.");
+    throw new Error(result.error || "Unable to remove item.");
   }
+};
+
+export const restoreGear = async (id: string) => {
+  const accessToken = await getAccessToken();
+
+  const result = await invokeEdgeFunction<{ data: GearItem }>("admin-gear-mutate", {
+    method: "POST",
+    accessToken,
+    body: {
+      action: "restore",
+      payload: { id },
+    },
+  });
+
+  if (!result.ok) {
+    throw new Error(result.error || "Unable to restore item.");
+  }
+
+  return result.data?.data as GearItem;
 };
 
 export const fetchGearLogs = async () => {
@@ -158,7 +194,7 @@ export const fetchGearLogs = async () => {
     .limit(200);
 
   if (error) {
-    throw new Error("Unable to load gear logs.");
+    throw new Error("Unable to load item logs.");
   }
 
   const rows = (data ?? []) as Array<{

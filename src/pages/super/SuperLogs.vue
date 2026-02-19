@@ -3,7 +3,7 @@
     <div class="page-nav-left">
       <RouterLink class="button-link" to="/super-admin">Return to Super Admin</RouterLink>
       <RouterLink class="button-link" to="/super-admin/tenants">Tenants</RouterLink>
-      <RouterLink class="button-link" to="/super-admin/gear">All Gear</RouterLink>
+      <RouterLink class="button-link" to="/super-admin/gear">All Items</RouterLink>
       <RouterLink class="button-link" to="/super-admin/students">All Students</RouterLink>
       <RouterLink class="button-link" to="/super-admin/broadcasts">Broadcasts</RouterLink>
     </div>
@@ -26,7 +26,7 @@
       <p v-if="isLoading" class="muted">Loading logs...</p>
       <p v-else-if="error" class="error">{{ error }}</p>
       <table v-else class="table">
-        <thead><tr><th>Time</th><th>Tenant</th><th>Action</th><th>Gear</th><th>Student</th></tr></thead>
+        <thead><tr><th>Time</th><th>Tenant</th><th>Action</th><th>Item</th><th>Student</th></tr></thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id">
             <td>{{ formatDateTime(row.action_time) }}</td>
@@ -128,12 +128,12 @@ const exportCsv = () => {
     showToast("Export", "No rows to export.");
     return;
   }
-  exportRowsToCsv(`super-logs-page-${page.value}.csv`, ["time", "tenant", "action", "gear_name", "gear_barcode", "student"], rows.value.map((row) => ({
+  exportRowsToCsv(`super-logs-page-${page.value}.csv`, ["time", "tenant", "action", "item_name", "item_barcode", "student"], rows.value.map((row) => ({
     time: formatDateTime(row.action_time),
     tenant: row.tenant?.name ?? row.tenant_id,
     action: row.action_type,
-    gear_name: row.gear?.name ?? "",
-    gear_barcode: row.gear?.barcode ?? "",
+    item_name: row.gear?.name ?? "",
+    item_barcode: row.gear?.barcode ?? "",
     student: row.student ? `${row.student.first_name} ${row.student.last_name} (${row.student.student_id})` : "",
   })));
 };
@@ -143,12 +143,12 @@ const exportPdf = () => {
     showToast("Export", "No rows to export.");
     return;
   }
-  exportRowsToPdf(`super-logs-page-${page.value}.pdf`, "Super Logs Export", ["time", "tenant", "action", "gear_name", "gear_barcode", "student"], rows.value.map((row) => ({
+  exportRowsToPdf(`super-logs-page-${page.value}.pdf`, "Super Logs Export", ["time", "tenant", "action", "item_name", "item_barcode", "student"], rows.value.map((row) => ({
     time: formatDateTime(row.action_time),
     tenant: row.tenant?.name ?? row.tenant_id,
     action: row.action_type,
-    gear_name: row.gear?.name ?? "",
-    gear_barcode: row.gear?.barcode ?? "",
+    item_name: row.gear?.name ?? "",
+    item_barcode: row.gear?.barcode ?? "",
     student: row.student ? `${row.student.first_name} ${row.student.last_name} (${row.student.student_id})` : "",
   })));
 };

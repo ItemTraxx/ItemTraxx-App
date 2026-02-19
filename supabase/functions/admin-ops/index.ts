@@ -14,6 +14,20 @@ type RateLimitResult = {
 };
 
 const TRACKED_STATUSES = new Set(["damaged", "lost", "in_repair", "retired", "in_studio_only"]);
+const ALLOWED_GEAR_STATUSES = new Set([
+  "available",
+  "checked_out",
+  "damaged",
+  "lost",
+  "in_repair",
+  "retired",
+  "in_studio_only",
+]);
+
+const DEFAULT_DUE_HOURS = 72;
+const DEFAULT_ESC_1 = 120;
+const DEFAULT_ESC_2 = 168;
+const DEFAULT_ESC_3 = 240;
 
 type RpcError = {
   code?: string;
@@ -60,6 +74,32 @@ const resolveMaintenance = (value: unknown) => {
       typeof payload.message === "string" && payload.message.trim()
         ? payload.message.trim()
         : "Maintenance in progress.",
+  };
+};
+
+const parsePositiveInt = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+};
+
+const normalizeEscalationPolicy = (
+  dueHours: number,
+  level1: number,
+  level2: number,
+  level3: number
+) => {
+  const normalizedDue = parsePositiveInt(dueHours, DEFAULT_DUE_HOURS);
+  const normalizedLevel1 = Math.max(parsePositiveInt(level1, DEFAULT_ESC_1), normalizedDue);
+  const normalizedLevel2 = Math.max(parsePositiveInt(level2, DEFAULT_ESC_2), normalizedLevel1 + 1);
+  const normalizedLevel3 = Math.max(parsePositiveInt(level3, DEFAULT_ESC_3), normalizedLevel2 + 1);
+  return {
+    due_hours: normalizedDue,
+    escalation_level_1_hours: normalizedLevel1,
+    escalation_level_2_hours: normalizedLevel2,
+    escalation_level_3_hours: normalizedLevel3,
   };
 };
 
@@ -183,6 +223,43 @@ serve(async (req) => {
 
     const tenantId = profile.tenant_id as string;
 
+    const duePolicySelect =
+      "checkout_due_hours, escalation_level_1_hours, escalation_level_2_hours, escalation_level_3_hours";
+
+    const loadPolicy = async () => {
+      const duePolicyResult = await adminClient
+        .from("tenant_policies")
+        .select(duePolicySelect)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+
+      if (
+        duePolicyResult.error &&
+        (isMissingColumn(duePolicyResult.error as RpcError, "escalation_level_1_hours") ||
+          isMissingColumn(duePolicyResult.error as RpcError, "escalation_level_2_hours") ||
+          isMissingColumn(duePolicyResult.error as RpcError, "escalation_level_3_hours"))
+      ) {
+        const fallback = await adminClient
+          .from("tenant_policies")
+          .select("checkout_due_hours")
+          .eq("tenant_id", tenantId)
+          .maybeSingle();
+        const dueHours = parsePositiveInt(
+          fallback.data?.checkout_due_hours,
+          DEFAULT_DUE_HOURS
+        );
+        return normalizeEscalationPolicy(dueHours, DEFAULT_ESC_1, DEFAULT_ESC_2, DEFAULT_ESC_3);
+      }
+
+      const normalized = normalizeEscalationPolicy(
+        duePolicyResult.data?.checkout_due_hours,
+        duePolicyResult.data?.escalation_level_1_hours,
+        duePolicyResult.data?.escalation_level_2_hours,
+        duePolicyResult.data?.escalation_level_3_hours
+      );
+      return normalized;
+    };
+
     const { data: maintenanceRow } = await adminClient
       .from("app_runtime_config")
       .select("value")
@@ -191,50 +268,54 @@ serve(async (req) => {
     const maintenance = resolveMaintenance(maintenanceRow?.value);
 
     if (action === "get_notifications") {
-      const [
-        overdueCountResult,
-        statusCountResult,
-        recentStatusResult,
-        duePolicyResult,
-      ] = await Promise.all([
-        adminClient
-          .from("gear")
-          .select("id", { count: "exact", head: true })
-          .eq("tenant_id", tenantId)
-          .eq("status", "checked_out")
-          .lt(
-            "checked_out_at",
-            new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString()
-          ),
-        adminClient
-          .from("gear")
-          .select("id", { count: "exact", head: true })
-          .eq("tenant_id", tenantId)
-          .not("status", "in", "(available,checked_out)"),
-        adminClient
-          .from("gear_status_history")
-          .select("id, status, changed_at, gear:gear_id(name, barcode)")
-          .eq("tenant_id", tenantId)
-          .order("changed_at", { ascending: false })
-          .limit(8),
-        adminClient
-          .from("tenant_policies")
-          .select("checkout_due_hours")
-          .eq("tenant_id", tenantId)
-          .maybeSingle(),
-      ]);
+      const [overdueCountResult, statusCountResult, recentStatusResult, policy] =
+        await Promise.all([
+          adminClient
+            .from("gear")
+            .select("id", { count: "exact", head: true })
+            .eq("tenant_id", tenantId)
+            .eq("status", "checked_out")
+            .is("deleted_at", null)
+            .lt(
+              "checked_out_at",
+              new Date(Date.now() - DEFAULT_DUE_HOURS * 60 * 60 * 1000).toISOString()
+            ),
+          adminClient
+            .from("gear")
+            .select("id", { count: "exact", head: true })
+            .eq("tenant_id", tenantId)
+            .is("deleted_at", null)
+            .not("status", "in", "(available,checked_out)"),
+          adminClient
+            .from("gear_status_history")
+            .select("id, status, changed_at, gear:gear_id(name, barcode)")
+            .eq("tenant_id", tenantId)
+            .order("changed_at", { ascending: false })
+            .limit(8),
+          loadPolicy(),
+        ]);
 
-      const dueHours = Number(duePolicyResult.data?.checkout_due_hours ?? 72);
+      const dueCutoffIso = new Date(
+        Date.now() - policy.due_hours * 60 * 60 * 1000
+      ).toISOString();
+      const { count: overdueCount, error: overdueError } = await adminClient
+        .from("gear")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .eq("status", "checked_out")
+        .is("deleted_at", null)
+        .lt("checked_out_at", dueCutoffIso);
 
       return jsonResponse(200, {
         data: {
-          overdue_count: overdueCountResult.error ? 0 : overdueCountResult.count ?? 0,
+          overdue_count: overdueError ? 0 : overdueCount ?? overdueCountResult.count ?? 0,
           flagged_count: statusCountResult.error ? 0 : statusCountResult.count ?? 0,
-          due_hours: Number.isFinite(dueHours) && dueHours > 0 ? dueHours : 72,
+          due_hours: policy.due_hours,
+          escalation_level_1_hours: policy.escalation_level_1_hours,
+          escalation_level_2_hours: policy.escalation_level_2_hours,
+          escalation_level_3_hours: policy.escalation_level_3_hours,
           maintenance,
-          recent_status_events: recentStatusResult.error
-            ? []
-            : recentStatusResult.data ?? [],
+          recent_status_events: recentStatusResult.error ? [] : recentStatusResult.data ?? [],
         },
       });
     }
@@ -244,19 +325,16 @@ serve(async (req) => {
         return jsonResponse(403, { error: "Access denied" });
       }
 
-      const [flaggedResult, duePolicyResult, historyBaseResult] = await Promise.all([
+      const [flaggedResult, policy, historyBaseResult] = await Promise.all([
         adminClient
           .from("gear")
           .select("id, name, barcode, serial_number, status, notes, updated_at, created_at")
           .eq("tenant_id", tenantId)
+          .is("deleted_at", null)
           .not("status", "in", "(available,checked_out)")
           .order("updated_at", { ascending: false })
           .limit(400),
-        adminClient
-          .from("tenant_policies")
-          .select("checkout_due_hours")
-          .eq("tenant_id", tenantId)
-          .maybeSingle(),
+        loadPolicy(),
         adminClient
           .from("gear_status_history")
           .select("id, gear_id, status, note, changed_at, changed_by")
@@ -281,6 +359,7 @@ serve(async (req) => {
             .from("gear")
             .select("id, name, barcode, serial_number, status, notes, created_at")
             .eq("tenant_id", tenantId)
+            .is("deleted_at", null)
             .not("status", "in", "(available,checked_out)")
             .order("created_at", { ascending: false })
             .limit(400);
@@ -331,10 +410,6 @@ serve(async (req) => {
         }));
       }
 
-      const dueHours = isMissingColumn(duePolicyResult.error as RpcError, "checkout_due_hours")
-        ? 72
-        : Number(duePolicyResult.data?.checkout_due_hours ?? 72);
-
       let history: Array<{
         id: string;
         gear_id: string;
@@ -364,10 +439,7 @@ serve(async (req) => {
         }>;
         const gearIds = Array.from(new Set(historyRows.map((row) => row.gear_id)));
         const { data: gearRows } = gearIds.length
-          ? await adminClient
-              .from("gear")
-              .select("id, name, barcode")
-              .in("id", gearIds)
+          ? await adminClient.from("gear").select("id, name, barcode").in("id", gearIds)
           : { data: [] };
         const gearMap = new Map(
           ((gearRows ?? []) as Array<{ id: string; name: string; barcode: string }>).map((row) => [
@@ -383,7 +455,10 @@ serve(async (req) => {
 
       return jsonResponse(200, {
         data: {
-          due_hours: Number.isFinite(dueHours) && dueHours > 0 ? dueHours : 72,
+          due_hours: policy.due_hours,
+          escalation_level_1_hours: policy.escalation_level_1_hours,
+          escalation_level_2_hours: policy.escalation_level_2_hours,
+          escalation_level_3_hours: policy.escalation_level_3_hours,
           flagged_items: flaggedItems,
           history,
         },
@@ -394,8 +469,13 @@ serve(async (req) => {
       if (profile.role !== "tenant_admin") {
         return jsonResponse(403, { error: "Access denied" });
       }
-      const dueHours = Number((payload ?? {}).checkout_due_hours);
-      if (!Number.isFinite(dueHours) || dueHours < 1 || dueHours > 24 * 30) {
+      const policy = normalizeEscalationPolicy(
+        (payload ?? {}).checkout_due_hours,
+        (payload ?? {}).escalation_level_1_hours,
+        (payload ?? {}).escalation_level_2_hours,
+        (payload ?? {}).escalation_level_3_hours
+      );
+      if (policy.due_hours < 1 || policy.due_hours > 24 * 30) {
         return jsonResponse(400, { error: "Invalid due time limit." });
       }
 
@@ -404,13 +484,16 @@ serve(async (req) => {
         .upsert(
           {
             tenant_id: tenantId,
-            checkout_due_hours: Math.floor(dueHours),
+            checkout_due_hours: policy.due_hours,
+            escalation_level_1_hours: policy.escalation_level_1_hours,
+            escalation_level_2_hours: policy.escalation_level_2_hours,
+            escalation_level_3_hours: policy.escalation_level_3_hours,
             updated_by: user.id,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "tenant_id" }
         )
-        .select("checkout_due_hours")
+        .select(duePolicySelect)
         .single();
 
       if (error || !data) {
@@ -425,13 +508,7 @@ serve(async (req) => {
         return jsonResponse(403, { error: "Access denied" });
       }
 
-      const duePolicyResult = await adminClient
-        .from("tenant_policies")
-        .select("checkout_due_hours")
-        .eq("tenant_id", tenantId)
-        .maybeSingle();
-      const dueHoursRaw = Number(duePolicyResult.data?.checkout_due_hours ?? 72);
-      const dueHours = Number.isFinite(dueHoursRaw) && dueHoursRaw > 0 ? dueHoursRaw : 72;
+      const policy = await loadPolicy();
 
       const { data: overdueRows, error: overdueError } = await adminClient
         .from("gear")
@@ -440,9 +517,10 @@ serve(async (req) => {
         )
         .eq("tenant_id", tenantId)
         .eq("status", "checked_out")
+        .is("deleted_at", null)
         .lt(
           "checked_out_at",
-          new Date(Date.now() - dueHours * 60 * 60 * 1000).toISOString()
+          new Date(Date.now() - policy.due_hours * 60 * 60 * 1000).toISOString()
         )
         .limit(500);
 
@@ -455,7 +533,8 @@ serve(async (req) => {
         {
           student_name: string;
           student_id: string;
-          items: Array<{ name: string; barcode: string; checked_out_at: string | null }>;
+          max_level: number;
+          items: Array<{ name: string; barcode: string; checked_out_at: string | null; level: number }>;
         }
       >();
 
@@ -478,32 +557,56 @@ serve(async (req) => {
             }>
           | null;
       }>) {
-        const student = Array.isArray(row.student)
-          ? row.student[0] ?? null
-          : row.student;
+        const student = Array.isArray(row.student) ? row.student[0] ?? null : row.student;
         const email = (student?.email ?? "").trim().toLowerCase();
         if (!email) {
           continue;
         }
 
+        const checkedOutAtMs = row.checked_out_at ? Date.parse(row.checked_out_at) : NaN;
+        const hoursOverdue = Number.isNaN(checkedOutAtMs)
+          ? policy.due_hours
+          : Math.max(0, (Date.now() - checkedOutAtMs) / (1000 * 60 * 60));
+        const level =
+          hoursOverdue >= policy.escalation_level_3_hours
+            ? 3
+            : hoursOverdue >= policy.escalation_level_2_hours
+            ? 2
+            : hoursOverdue >= policy.escalation_level_1_hours
+            ? 1
+            : 0;
+
         if (!grouped.has(email)) {
           grouped.set(email, {
             student_name: `${student?.first_name ?? ""} ${student?.last_name ?? ""}`.trim(),
             student_id: student?.student_id ?? "",
+            max_level: level,
             items: [],
           });
         }
 
-        grouped.get(email)?.items.push({
-          name: row.name,
-          barcode: row.barcode,
-          checked_out_at: row.checked_out_at,
-        });
+        const bucket = grouped.get(email);
+        if (bucket) {
+          bucket.max_level = Math.max(bucket.max_level, level);
+          bucket.items.push({
+            name: row.name,
+            barcode: row.barcode,
+            checked_out_at: row.checked_out_at,
+            level,
+          });
+        }
       }
 
       if (!grouped.size) {
         return jsonResponse(200, {
-          data: { sent: 0, recipients: 0, due_hours: dueHours },
+          data: {
+            sent: 0,
+            recipients: 0,
+            due_hours: policy.due_hours,
+            escalation_level_1_hours: policy.escalation_level_1_hours,
+            escalation_level_2_hours: policy.escalation_level_2_hours,
+            escalation_level_3_hours: policy.escalation_level_3_hours,
+          },
         });
       }
 
@@ -518,21 +621,33 @@ serve(async (req) => {
       }
 
       let sent = 0;
+      const escalationStats = { level_1: 0, level_2: 0, level_3: 0 };
+
       for (const [email, studentData] of grouped) {
+        const subjectPrefix =
+          studentData.max_level >= 3
+            ? "Final notice"
+            : studentData.max_level === 2
+            ? "Second notice"
+            : studentData.max_level === 1
+            ? "Reminder"
+            : "Overdue notice";
+
         const itemRows = studentData.items
-          .map(
-            (item) =>
-              `<li>${item.name} (${item.barcode}) - checked out ${new Date(
-                item.checked_out_at ?? ""
-              ).toLocaleString()}</li>`
-          )
+          .map((item) => {
+            const dateLabel = item.checked_out_at
+              ? new Date(item.checked_out_at).toLocaleString()
+              : "unknown time";
+            return `<li>${item.name} (${item.barcode}) - checked out ${dateLabel}</li>`;
+          })
           .join("");
 
         const html = `
           <p>Hello ${studentData.student_name || "Student"},</p>
-          <p>This is an ItemTraxx reminder that the following item(s) are overdue (limit: ${dueHours} hours):</p>
+          <p>${subjectPrefix}: the following item(s) are overdue.</p>
           <ul>${itemRows}</ul>
-          <p>Please return them as soon as possible.</p>
+          <p>Due limit: ${policy.due_hours} hours.</p>
+          <p>Please return these items as soon as possible.</p>
         `;
 
         try {
@@ -540,10 +655,13 @@ serve(async (req) => {
             resendApiKey,
             emailFrom,
             email,
-            "ItemTraxx overdue gear reminder",
+            `${subjectPrefix} - ItemTraxx overdue item`,
             html
           );
           sent += 1;
+          if (studentData.max_level === 1) escalationStats.level_1 += 1;
+          if (studentData.max_level === 2) escalationStats.level_2 += 1;
+          if (studentData.max_level >= 3) escalationStats.level_3 += 1;
         } catch (emailError) {
           console.error("overdue reminder send failed", {
             email,
@@ -553,7 +671,152 @@ serve(async (req) => {
       }
 
       return jsonResponse(200, {
-        data: { sent, recipients: grouped.size, due_hours: dueHours },
+        data: {
+          sent,
+          recipients: grouped.size,
+          due_hours: policy.due_hours,
+          escalation_level_1_hours: policy.escalation_level_1_hours,
+          escalation_level_2_hours: policy.escalation_level_2_hours,
+          escalation_level_3_hours: policy.escalation_level_3_hours,
+          escalation_recipients: escalationStats,
+        },
+      });
+    }
+
+    if (action === "bulk_import_gear") {
+      if (profile.role !== "tenant_admin") {
+        return jsonResponse(403, { error: "Access denied" });
+      }
+
+      const rawRows = Array.isArray((payload as Record<string, unknown>)?.rows)
+        ? ((payload as Record<string, unknown>).rows as Array<Record<string, unknown>>)
+        : [];
+
+      if (!rawRows.length || rawRows.length > 1000) {
+        return jsonResponse(400, { error: "Provide between 1 and 1000 rows." });
+      }
+
+      const skippedRows: Array<{ barcode: string; reason: string }> = [];
+      const normalizedRows: Array<{
+        name: string;
+        barcode: string;
+        serial_number: string | null;
+        status: string;
+        notes: string | null;
+      }> = [];
+
+      const seenBarcodes = new Set<string>();
+
+      for (const row of rawRows) {
+        const name = typeof row.name === "string" ? row.name.trim() : "";
+        const barcode = typeof row.barcode === "string" ? row.barcode.trim() : "";
+        const serial = typeof row.serial_number === "string" ? row.serial_number.trim() : "";
+        const statusRaw = typeof row.status === "string" ? row.status.trim() : "available";
+        const notes = typeof row.notes === "string" ? row.notes.trim() : "";
+
+        if (!name || !barcode) {
+          skippedRows.push({ barcode: barcode || "(blank)", reason: "Missing name or barcode." });
+          continue;
+        }
+        if (name.length > 120 || barcode.length > 64 || serial.length > 64 || notes.length > 500) {
+          skippedRows.push({ barcode, reason: "Field length exceeded." });
+          continue;
+        }
+        if (!ALLOWED_GEAR_STATUSES.has(statusRaw)) {
+          skippedRows.push({ barcode, reason: "Invalid status." });
+          continue;
+        }
+        if (seenBarcodes.has(barcode.toLowerCase())) {
+          skippedRows.push({ barcode, reason: "Duplicate barcode in import." });
+          continue;
+        }
+
+        seenBarcodes.add(barcode.toLowerCase());
+        normalizedRows.push({
+          name,
+          barcode,
+          serial_number: serial || null,
+          status: statusRaw,
+          notes: notes || null,
+        });
+      }
+
+      if (!normalizedRows.length) {
+        return jsonResponse(200, {
+          data: {
+            inserted: 0,
+            skipped: skippedRows.length,
+            inserted_items: [],
+            skipped_rows: skippedRows,
+          },
+        });
+      }
+
+      const lookupBarcodes = normalizedRows.map((row) => row.barcode);
+      const { data: existingRows } = await adminClient
+        .from("gear")
+        .select("barcode")
+        .eq("tenant_id", tenantId)
+        .in("barcode", lookupBarcodes);
+      const existing = new Set((existingRows ?? []).map((row) => (row as { barcode: string }).barcode));
+
+      const toInsert = normalizedRows.filter((row) => {
+        const isExisting = existing.has(row.barcode);
+        if (isExisting) {
+          skippedRows.push({ barcode: row.barcode, reason: "Barcode already exists." });
+        }
+        return !isExisting;
+      });
+
+      if (!toInsert.length) {
+        return jsonResponse(200, {
+          data: {
+            inserted: 0,
+            skipped: skippedRows.length,
+            inserted_items: [],
+            skipped_rows: skippedRows,
+          },
+        });
+      }
+
+      const insertPayload = toInsert.map((row) => ({
+        tenant_id: tenantId,
+        name: row.name,
+        barcode: row.barcode,
+        serial_number: row.serial_number,
+        status: row.status,
+        notes: row.notes,
+      }));
+
+      const { data: insertedRows, error: insertError } = await adminClient
+        .from("gear")
+        .insert(insertPayload)
+        .select("id, tenant_id, name, barcode, serial_number, status, notes");
+
+      if (insertError) {
+        return jsonResponse(400, { error: "Unable to import item rows." });
+      }
+
+      const historyPayload = (insertedRows ?? [])
+        .filter((item) => TRACKED_STATUSES.has((item as { status: string }).status))
+        .map((item) => ({
+          tenant_id: tenantId,
+          gear_id: (item as { id: string }).id,
+          status: (item as { status: string }).status,
+          note: (item as { notes?: string | null }).notes ?? null,
+          changed_by: user.id,
+        }));
+      if (historyPayload.length) {
+        await adminClient.from("gear_status_history").insert(historyPayload);
+      }
+
+      return jsonResponse(200, {
+        data: {
+          inserted: (insertedRows ?? []).length,
+          skipped: skippedRows.length,
+          inserted_items: insertedRows ?? [],
+          skipped_rows: skippedRows,
+        },
       });
     }
 

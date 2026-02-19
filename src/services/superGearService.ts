@@ -36,7 +36,7 @@ const callSuperGear = async <TData>(payload: SuperGearRequest) => {
   );
 
   if (!result.ok) {
-    throw new Error(result.error || "Super gear request failed.");
+    throw new Error(result.error || "Super item request failed.");
   }
 
   return result.data?.data as TData;

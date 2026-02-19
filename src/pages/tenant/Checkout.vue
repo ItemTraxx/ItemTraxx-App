@@ -46,11 +46,11 @@
             </li>
           </ul>
         </div>
-        <p v-else class="muted">No gear currently checked out.</p>
+        <p v-else class="muted">No items currently checked out.</p>
       </div>
       <div v-if="student">
         <label>
-          Gear barcode
+          Item barcode
           <div class="input-row">
             <input
               ref="barcodeField"

@@ -133,3 +133,32 @@ create table if not exists public.gear_status_history (
 
 create index if not exists idx_gear_status_history_tenant_changed_at
   on public.gear_status_history (tenant_id, changed_at desc);
+
+-- Soft delete support for tenant gear/students
+alter table if exists public.gear
+  add column if not exists deleted_at timestamptz;
+
+alter table if exists public.gear
+  add column if not exists deleted_by uuid references auth.users(id) on delete set null;
+
+alter table if exists public.students
+  add column if not exists deleted_at timestamptz;
+
+alter table if exists public.students
+  add column if not exists deleted_by uuid references auth.users(id) on delete set null;
+
+create index if not exists idx_gear_tenant_deleted_at
+  on public.gear (tenant_id, deleted_at);
+
+create index if not exists idx_students_tenant_deleted_at
+  on public.students (tenant_id, deleted_at);
+
+-- Escalation thresholds for overdue reminders
+alter table if exists public.tenant_policies
+  add column if not exists escalation_level_1_hours int not null default 120;
+
+alter table if exists public.tenant_policies
+  add column if not exists escalation_level_2_hours int not null default 168;
+
+alter table if exists public.tenant_policies
+  add column if not exists escalation_level_3_hours int not null default 240;

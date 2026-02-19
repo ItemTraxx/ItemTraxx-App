@@ -162,7 +162,7 @@
           <h3>Clean up messy inventories.</h3>
           <p>
             ItemTraxx aims to solve the issues with messy inventories. Whether you run a small
-            media production company with gear constantly on the move, or a workshop with tools
+            media production company with items constantly on the move, or a workshop with tools
             going in and out, ItemTraxx is the go-to inventory tracking solution.
           </p>
         </article>

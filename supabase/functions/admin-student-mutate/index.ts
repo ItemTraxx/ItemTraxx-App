@@ -147,6 +147,22 @@ serve(async (req) => {
       });
     }
 
+    if (action === "list_deleted") {
+      const { data, error } = await adminClient
+        .from("students")
+        .select("id, tenant_id, first_name, last_name, student_id")
+        .eq("tenant_id", profile.tenant_id)
+        .not("deleted_at", "is", null)
+        .order("deleted_at", { ascending: false })
+        .limit(300);
+
+      if (error) {
+        return jsonResponse(400, { error: "Unable to load archived students." });
+      }
+
+      return jsonResponse(200, { data: data ?? [] });
+    }
+
     if (action === "create") {
       const { first_name, last_name, student_id } = payload as Record<string, unknown>;
       const normalizedFirstName =
@@ -185,21 +201,78 @@ serve(async (req) => {
 
     if (action === "delete") {
       const { id } = payload as Record<string, unknown>;
-      if (typeof id !== "string" || !id.trim()) {
+      const normalizedId = typeof id === "string" ? id.trim() : "";
+      if (!normalizedId) {
         return jsonResponse(400, { error: "Invalid request" });
+      }
+
+      const { data: activeStudent } = await adminClient
+        .from("students")
+        .select("id")
+        .eq("id", normalizedId)
+        .eq("tenant_id", profile.tenant_id)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+      if (!activeStudent?.id) {
+        return jsonResponse(404, { error: "Student not found." });
+      }
+
+      const { count, error: checkedOutError } = await adminClient
+        .from("gear")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", profile.tenant_id)
+        .eq("checked_out_by", normalizedId)
+        .is("deleted_at", null);
+
+      if (checkedOutError) {
+        return jsonResponse(400, { error: "Unable to archive student." });
+      }
+
+      if ((count ?? 0) > 0) {
+        return jsonResponse(400, {
+          error: "Return all checked-out items before archiving this student.",
+        });
       }
 
       const { error } = await adminClient
         .from("students")
-        .delete()
-        .eq("id", id)
-        .eq("tenant_id", profile.tenant_id);
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: user.id,
+        })
+        .eq("id", normalizedId)
+        .eq("tenant_id", profile.tenant_id)
+        .is("deleted_at", null);
 
       if (error) {
-        return jsonResponse(400, { error: "Unable to remove student." });
+        return jsonResponse(400, { error: "Unable to archive student." });
       }
 
       return jsonResponse(200, { success: true });
+    }
+
+    if (action === "restore") {
+      const { id } = payload as Record<string, unknown>;
+      const normalizedId = typeof id === "string" ? id.trim() : "";
+      if (!normalizedId) {
+        return jsonResponse(400, { error: "Invalid request" });
+      }
+
+      const { data, error } = await adminClient
+        .from("students")
+        .update({ deleted_at: null, deleted_by: null })
+        .eq("id", normalizedId)
+        .eq("tenant_id", profile.tenant_id)
+        .not("deleted_at", "is", null)
+        .select("id, tenant_id, first_name, last_name, student_id")
+        .single();
+
+      if (error || !data) {
+        return jsonResponse(400, { error: "Unable to restore student." });
+      }
+
+      return jsonResponse(200, { data });
     }
 
     return jsonResponse(400, { error: "Invalid action" });
