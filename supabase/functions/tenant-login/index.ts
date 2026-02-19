@@ -93,6 +93,30 @@ const resolveClientIp = (req: Request) => {
   return firstForwardedIp || connectingIp || realIp || "";
 };
 
+const resolveAikidoBypassConfig = () => {
+  const allowedIps = new Set(
+    (Deno.env.get("ITX_AIKIDO_ALLOWED_IPS") ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+  const userAgentNeedle = (Deno.env.get("ITX_AIKIDO_USER_AGENT_NEEDLE") ?? "")
+    .trim()
+    .toLowerCase();
+  return { allowedIps, userAgentNeedle };
+};
+
+const isAikidoTurnstileBypassRequest = (req: Request) => {
+  const { allowedIps, userAgentNeedle } = resolveAikidoBypassConfig();
+  if (!allowedIps.size || !userAgentNeedle) return false;
+
+  const clientIp = resolveClientIp(req);
+  if (!clientIp || !allowedIps.has(clientIp)) return false;
+
+  const userAgent = (req.headers.get("user-agent") ?? "").toLowerCase();
+  return userAgent.includes(userAgentNeedle);
+};
+
 const verifyTurnstileToken = async (
   secret: string,
   token: string,
@@ -181,21 +205,26 @@ serve(async (req) => {
     }
 
     const turnstileSecret = Deno.env.get("ITX_TURNSTILE_SECRET") ?? "";
+    const bypassTurnstileForAikido = isAikidoTurnstileBypassRequest(req);
     if (turnstileSecret) {
-      if (
-        typeof turnstile_token !== "string" ||
-        !turnstile_token.trim() ||
-        turnstile_token.trim().length > 4096
-      ) {
-        return jsonResponse(400, { error: "Turnstile verification required" });
-      }
-      const isTurnstileValid = await verifyTurnstileToken(
-        turnstileSecret,
-        turnstile_token.trim(),
-        resolveClientIp(req)
-      );
-      if (!isTurnstileValid) {
-        return jsonResponse(403, { error: "Turnstile verification failed" });
+      if (!bypassTurnstileForAikido) {
+        if (
+          typeof turnstile_token !== "string" ||
+          !turnstile_token.trim() ||
+          turnstile_token.trim().length > 4096
+        ) {
+          return jsonResponse(400, { error: "Turnstile verification required" });
+        }
+        const isTurnstileValid = await verifyTurnstileToken(
+          turnstileSecret,
+          turnstile_token.trim(),
+          resolveClientIp(req)
+        );
+        if (!isTurnstileValid) {
+          return jsonResponse(403, { error: "Turnstile verification failed" });
+        }
+      } else {
+        console.info("tenant-login bypassed turnstile for Aikido scan traffic");
       }
     }
 
