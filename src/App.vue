@@ -74,7 +74,7 @@
         View status
       </a>
       <button type="button" class="broadcast-dismiss" @click="dismissIncidentBanner">
-        Dismiss
+        x
       </button>
     </div>
     <div v-if="showTopMenu" class="top-menu" :style="topMenuStyle">
@@ -229,8 +229,8 @@ const incidentSlaLine = computed(() => {
   if (!incidentBanner.value) return "";
   const slaTarget =
     incidentBanner.value.level === "down"
-      ? "SLA target: status update within 15 minutes."
-      : "SLA target: status update within 30 minutes.";
+      ? "SLA target: status update within 6 hours on status page."
+      : "SLA target: status update within 6 hours on status page.";
   if (!incidentBanner.value.checkedAt) return slaTarget;
   const checked = new Date(incidentBanner.value.checkedAt);
   if (Number.isNaN(checked.getTime())) return slaTarget;
