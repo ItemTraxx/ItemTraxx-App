@@ -36,6 +36,10 @@
         <h2>Item Status Tracking</h2>
         <p>Track lost, damaged, repair statuses and overdue reminder settings.</p>
       </RouterLink>
+      <RouterLink class="admin-card" to="/tenant/admin/barcodes">
+        <h2>Bulk Barcode Generator</h2>
+        <p>Generate and download barcode label PDFs with custom messages.</p>
+      </RouterLink>
     </div>
   </div>
 </template>

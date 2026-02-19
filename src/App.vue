@@ -9,6 +9,29 @@
       <strong>Maintenance Mode</strong>
       <span>{{ maintenanceMessage }}</span>
     </div>
+    <div v-if="showMaintenanceOverlay" class="maintenance-fullscreen" role="alertdialog" aria-live="assertive">
+      <div class="maintenance-fullscreen-card">
+        <h2>Maintenance in Progress</h2>
+        <p>
+          ItemTraxx is temporarily unavailable while we apply updates and stability improvements.
+        </p>
+        <p>
+          Please try again shortly. Your data is safe and we will restore full access as soon as
+          maintenance is complete.
+        </p>
+        <div class="maintenance-fullscreen-actions">
+          <a
+            class="button-link"
+            href="https://statuspage.incident.io/itemtraxx-status"
+            target="_blank"
+            rel="noreferrer"
+          >
+            View Live Status
+          </a>
+          <button type="button" class="button-primary" @click="reloadApp">Refresh</button>
+        </div>
+      </div>
+    </div>
     <div
       v-if="activeBroadcast && showBroadcast"
       class="broadcast-top-banner"
@@ -38,9 +61,18 @@
       aria-live="polite"
     >
       <div class="broadcast-content">
-        <strong class="broadcast-title">System Notice</strong>
+        <strong class="broadcast-title">{{ incidentBannerTitle }}</strong>
         <span class="broadcast-message">{{ incidentBanner.message }}</span>
+        <span class="broadcast-meta">{{ incidentSlaLine }}</span>
       </div>
+      <a
+        class="broadcast-link"
+        href="https://statuspage.incident.io/itemtraxx-status"
+        target="_blank"
+        rel="noreferrer"
+      >
+        View status
+      </a>
       <button type="button" class="broadcast-dismiss" @click="dismissIncidentBanner">
         Dismiss
       </button>
@@ -129,6 +161,7 @@ type IncidentBanner = {
   id: string;
   message: string;
   level: "degraded" | "down";
+  checkedAt?: string;
 };
 const activeBroadcast = ref<BroadcastPayload | null>(null);
 const dismissedBroadcastId = ref(localStorage.getItem("itemtraxx-broadcast-dismissed") || "");
@@ -168,6 +201,29 @@ const showIncidentBanner = computed(() => {
   return dismissedIncidentId.value !== incidentBanner.value.id;
 });
 const showMaintenanceBanner = computed(() => maintenanceEnabled.value);
+const showMaintenanceOverlay = computed(() => {
+  if (!maintenanceEnabled.value) return false;
+  const routeName = String(route.name || "");
+  if (routeName === "public-home" || routeName === "not-found" || routeName === "super-auth") {
+    return false;
+  }
+  return !routeName.startsWith("super-admin-");
+});
+const incidentBannerTitle = computed(() => {
+  if (!incidentBanner.value) return "System Notice";
+  return incidentBanner.value.level === "down" ? "System Outage" : "System Degraded";
+});
+const incidentSlaLine = computed(() => {
+  if (!incidentBanner.value) return "";
+  const slaTarget =
+    incidentBanner.value.level === "down"
+      ? "SLA target: status update within 15 minutes."
+      : "SLA target: status update within 30 minutes.";
+  if (!incidentBanner.value.checkedAt) return slaTarget;
+  const checked = new Date(incidentBanner.value.checkedAt);
+  if (Number.isNaN(checked.getTime())) return slaTarget;
+  return `${slaTarget} Last checked ${checked.toLocaleTimeString()}.`;
+});
 const topBannerRowCount = computed(() => {
   let rows = 0;
   if (showMaintenanceBanner.value) rows += 1;
@@ -321,6 +377,7 @@ const refreshSystemStatus = async () => {
             ? payload.incident_summary
             : "A system outage has been detected.",
         level: "down",
+        checkedAt: payload.checked_at,
       };
       return;
     }
@@ -337,6 +394,7 @@ const refreshSystemStatus = async () => {
           ? payload.incident_summary
           : "A system incident or maintenance event is active.",
       level: "degraded",
+      checkedAt: payload.checked_at,
     };
   } catch {
     statusLabel.value = "Unknown";
